@@ -26,7 +26,7 @@
             margin-top: 15px;
         }
 
-        input {
+        input, select {
             width: 100%;
             padding: 12px;
             margin-top: 10px;
@@ -49,11 +49,10 @@
         .result {
             margin-top: 10px;
             font-size: 18px;
+            font-weight: bold;
         }
 
-        .hidden {
-            display: none;
-        }
+        .hidden { display: none; }
 
         .payment {
             background: #2a3c48;
@@ -61,6 +60,16 @@
             border-radius: 10px;
             margin-top: 10px;
         }
+
+        .admin {
+            background: #1b5e20;
+            padding: 12px;
+            border-radius: 10px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        h3 { margin-top: 0; }
     </style>
 </head>
 
@@ -70,7 +79,8 @@
 
     <h2>💱 Swift Exchange</h2>
 
-    <div class="card">
+    <!-- PAGE 1 -->
+    <div class="card" id="page1">
 
         <select id="type" onchange="updateResult()">
             <option value="cedis">Cedis → Naira</option>
@@ -85,69 +95,154 @@
 
     </div>
 
-    <div class="card hidden" id="paymentBox"></div>
+    <!-- PAGE 2 -->
+    <div class="card hidden" id="page2">
+
+        <h3>💳 Payment Details</h3>
+
+        <div class="payment" id="paymentBox"></div>
+
+        <h3>💳 Payment Verification</h3>
+        <input type="text" id="senderName" placeholder="Name used to send payment">
+        <input type="text" id="senderPhone" placeholder="Sender Phone / MoMo Number">
+
+        <h3>🏦 Receiving Account</h3>
+        <input type="text" id="accName" placeholder="Account Name">
+        <input type="text" id="bankName" placeholder="Bank Name">
+        <input type="text" id="accNumber" placeholder="Account Number">
+
+        <button onclick="sendWhatsApp()">Confirm on WhatsApp</button>
+
+    </div>
+
+    <!-- ADMIN -->
+    <div class="admin hidden" id="adminBox"></div>
 
 </div>
 
 <script>
+// MARKET RATES
+const marketCedisToNaira = 117.647;
+const marketNairaToCedis = 119.048;
+
+// YOUR RATES
 const yourCedisToNaira = 116.27907;
 const yourNairaToCedis = 120.48193;
 
 let convertedAmount = 0;
+let profit = 0;
 let type = "cedis";
 
-function format(num){
-    return Number(num).toLocaleString(undefined,{minimumFractionDigits:2});
+const isAdmin = window.location.search.includes("admin=true");
+
+function format(num) {
+    return Number(num).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
 }
 
-function updateResult(){
+function updateResult() {
     let amount = document.getElementById("amount").value;
     type = document.getElementById("type").value;
 
-    if(!amount) return;
+    if (!amount) return;
 
-    if(type === "cedis"){
+    if (type === "cedis") {
         convertedAmount = amount * yourCedisToNaira;
+        profit = amount * (marketCedisToNaira - yourCedisToNaira);
+
         document.getElementById("result").innerText =
-        format(amount)+" GHS = "+format(convertedAmount)+" NGN";
+            format(amount) + " GHS = " + format(convertedAmount) + " NGN";
+
     } else {
         convertedAmount = amount / yourNairaToCedis;
+        profit = (amount / marketNairaToCedis) - convertedAmount;
+
         document.getElementById("result").innerText =
-        format(amount)+" NGN = "+format(convertedAmount)+" GHS";
+            format(amount) + " NGN = " + format(convertedAmount) + " GHS";
     }
 }
 
-function goToPayment(){
+function goToPayment() {
+    let amount = document.getElementById("amount").value;
+    if (!amount) return alert("Enter amount");
+
     let box = document.getElementById("paymentBox");
 
-    box.classList.remove("hidden");
-
-    if(type === "cedis"){
+    if (type === "cedis") {
         box.innerHTML = `
-        <div class="payment">
         <b>Send GHS (MoMo)</b><br>
         0555736233<br>
         Name: God of JECOB<br><br>
-
-        You receive: ${format(convertedAmount)} NGN
-        </div>
+        <b>You Receive:</b> ${format(convertedAmount)} NGN
         `;
     } else {
         box.innerHTML = `
-        <div class="payment">
-        <b>Send NGN (Bank)</b><br><br>
-
-        You receive: ${format(convertedAmount)} GHS
-        </div>
+        <b>Send NGN (Bank Transfer)</b><br><br>
+        <b>You Receive:</b> ${format(convertedAmount)} GHS<br><br>
+        MTN MoMo: 0555736233
         `;
+    }
+
+    document.getElementById("page1").classList.add("hidden");
+    document.getElementById("page2").classList.remove("hidden");
+
+    if (isAdmin) {
+        document.getElementById("adminBox").classList.remove("hidden");
+        document.getElementById("adminBox").innerHTML =
+        `<h3>🔐 Admin Panel</h3>
+        Profit: ${format(profit)}<br>
+        Customer Pays: ${format(document.getElementById("amount").value)}<br>
+        You Pay: ${format(convertedAmount)}`;
     }
 }
 
-/* SERVICE WORKER */
+function sendWhatsApp() {
+    let amount = document.getElementById("amount").value;
+
+    let senderName = document.getElementById("senderName").value;
+    let senderPhone = document.getElementById("senderPhone").value;
+
+    let accName = document.getElementById("accName").value;
+    let bankName = document.getElementById("bankName").value;
+    let accNumber = document.getElementById("accNumber").value;
+
+    if (!senderName || !senderPhone) {
+        return alert("Enter payment sender details");
+    }
+
+    if (!accName || !bankName || !accNumber) {
+        return alert("Enter receiving account details");
+    }
+
+    let message =
+`💱 NEW EXCHANGE ORDER
+
+Type: ${type}
+Customer Sent: ${format(amount)}
+Customer Receives: ${format(convertedAmount)}
+
+💳 PAYMENT DETAILS:
+Name: ${senderName}
+Phone: ${senderPhone}
+
+🏦 RECEIVING ACCOUNT:
+Name: ${accName}
+Bank: ${bankName}
+Account: ${accNumber}
+
+✔ Awaiting confirmation`;
+
+    let phone = "233542632169";
+
+    window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(message));
+}
+
+// SERVICE WORKER
 if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js")
-    .then(() => console.log("SW Registered"))
-    .catch(err => console.log(err));
+    .then(() => console.log("SW Registered"));
 }
 </script>
 
