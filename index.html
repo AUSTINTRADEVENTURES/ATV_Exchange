@@ -1,101 +1,64 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Swift Exchange Pro</title>
+    <title>Swift Exchange</title>
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="manifest" href="manifest.json">
 
     <style>
         body {
             margin: 0;
             font-family: Arial;
-            background: #f4f6f9;
-        }
-
-        .header {
             background: #0f2027;
             color: white;
-            padding: 15px;
-            text-align: center;
         }
 
-        .rate {
-            color: #00ffcc;
-            font-size: 14px;
-        }
-
-        .container {
-            max-width: 420px;
-            margin: 30px auto;
-        }
-
-        .box {
-            background: white;
+        .app {
             padding: 20px;
+        }
+
+        .card {
+            background: #1c2b36;
+            padding: 15px;
             border-radius: 12px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            margin-bottom: 10px;
+            margin-top: 15px;
         }
 
         input, select {
             width: 100%;
             padding: 12px;
-            margin: 8px 0;
+            margin-top: 10px;
             border-radius: 8px;
-            border: 1px solid #ccc;
+            border: none;
         }
 
         button {
             width: 100%;
             padding: 12px;
-            border: none;
-            border-radius: 8px;
             margin-top: 10px;
-            cursor: pointer;
+            border-radius: 8px;
+            border: none;
+            background: #25D366;
             color: white;
+            font-size: 16px;
         }
-
-        .btn-main { background: #0f2027; }
-        .btn-green { background: #25D366; }
 
         .result {
+            margin-top: 10px;
             font-weight: bold;
-            margin-top: 10px;
-        }
-
-        .hidden { display: none; }
-
-        .payment {
-            background: #fff3cd;
-            padding: 12px;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-
-        .admin {
-            background: #e8f5e9;
-            padding: 12px;
-            border-radius: 8px;
-            margin-top: 10px;
-            font-size: 14px;
-        }
-
-        h4 {
-            margin-top: 15px;
         }
     </style>
 </head>
 
 <body>
 
-<div class="header">
-    <h2>💱 Swift Exchange Pro</h2>
-    <div class="rate">Live Exchange Active</div>
-</div>
+<div class="app">
 
-<div class="container">
+    <h2>💱 Swift Exchange</h2>
 
-    <!-- PAGE 1 -->
-    <div class="box">
-
+    <div class="card">
         <select id="type" onchange="updateResult()">
             <option value="cedis">Cedis → Naira</option>
             <option value="naira">Naira → Cedis</option>
@@ -105,148 +68,64 @@
 
         <div class="result" id="result"></div>
 
-        <button class="btn-main" onclick="goToPayment()">Convert</button>
-
+        <button onclick="goToPayment()">Continue</button>
     </div>
 
-    <!-- PAGE 2 -->
-    <div class="box hidden" id="page2">
-
-        <h3>💳 Payment Details</h3>
-
-        <div class="payment" id="paymentBox"></div>
-
-        <h4>💳 Payment Verification</h4>
-        <input type="text" id="senderName" placeholder="Name used to send payment">
-        <input type="text" id="senderPhone" placeholder="Sender Phone / MoMo Number">
-
-        <h4>🏦 Receiving Account</h4>
-        <input type="text" id="accName" placeholder="Account Name">
-        <input type="text" id="bankName" placeholder="Bank Name">
-        <input type="text" id="accNumber" placeholder="Account Number">
-
-        <button class="btn-green" onclick="sendWhatsApp()">
-            Confirm on WhatsApp
-        </button>
-
-    </div>
-
-    <!-- ADMIN -->
-    <div class="admin hidden" id="adminBox"></div>
+    <div class="card" id="paymentBox" style="display:none;"></div>
 
 </div>
 
 <script>
-    // MARKET RATES
-    const marketCedisToNaira = 117.647;
-    const marketNairaToCedis = 119.048;
+const yourCedisToNaira = 116.27907;
+const yourNairaToCedis = 120.48193;
 
-    // YOUR RATES
-    const yourCedisToNaira = 116.27907;
-    const yourNairaToCedis = 120.48193;
+let convertedAmount = 0;
+let type = "cedis";
 
-    let convertedAmount = 0;
-    let profit = 0;
-    let type = "cedis";
+function format(num){
+    return Number(num).toLocaleString(undefined,{minimumFractionDigits:2});
+}
 
-    const isAdmin = window.location.search.includes("admin=true");
+function updateResult(){
+    let amount = document.getElementById("amount").value;
+    type = document.getElementById("type").value;
 
-    function format(num) {
-        return Number(num).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        });
+    if(!amount) return;
+
+    if(type === "cedis"){
+        convertedAmount = amount * yourCedisToNaira;
+        document.getElementById("result").innerText =
+        format(amount)+" GHS = "+format(convertedAmount)+" NGN";
+    } else {
+        convertedAmount = amount / yourNairaToCedis;
+        document.getElementById("result").innerText =
+        format(amount)+" NGN = "+format(convertedAmount)+" GHS";
     }
+}
 
-    function updateResult() {
-        let amount = document.getElementById("amount").value;
-        type = document.getElementById("type").value;
+function goToPayment(){
+    let box = document.getElementById("paymentBox");
 
-        if (!amount) return;
+    box.style.display = "block";
 
-        if (type === "cedis") {
-
-            convertedAmount = amount * yourCedisToNaira;
-            profit = amount * (marketCedisToNaira - yourCedisToNaira);
-
-            document.getElementById("result").innerText =
-                format(amount) + " GHS = " + format(convertedAmount) + " NGN";
-
-        } else {
-
-            convertedAmount = amount / yourNairaToCedis;
-            profit = (amount / marketNairaToCedis) - convertedAmount;
-
-            document.getElementById("result").innerText =
-                format(amount) + " NGN = " + format(convertedAmount) + " GHS";
-        }
+    if(type === "cedis"){
+        box.innerHTML = `
+        <b>Send GHS (MoMo)</b><br>
+        0555736233<br><br>
+        You receive: ${format(convertedAmount)} NGN
+        `;
+    } else {
+        box.innerHTML = `
+        <b>Send NGN (Bank)</b><br><br>
+        You receive: ${format(convertedAmount)} GHS
+        `;
     }
+}
 
-    function goToPayment() {
-        let amount = document.getElementById("amount").value;
-        if (!amount) return alert("Enter amount");
-
-        let box = document.getElementById("paymentBox");
-
-        if (type === "cedis") {
-            box.innerHTML =
-            `<b>Customer Pays (GHS)</b><br>
-            MTN MoMo: 0555736233<br>
-            Name: God of JECOB<br><br>
-            <b>You Pay:</b> ${format(convertedAmount)} NGN`;
-        } else {
-            box.innerHTML =
-            `<b>Customer Pays (NGN)</b><br>
-            Bank Transfer Nigeria<br><br>
-            <b>You Pay:</b> ${format(convertedAmount)} GHS`;
-        }
-
-        document.getElementById("page2").classList.remove("hidden");
-
-        if (isAdmin) {
-            document.getElementById("adminBox").classList.remove("hidden");
-            document.getElementById("adminBox").innerHTML =
-            `<h3>🔐 ADMIN PANEL</h3>
-            Profit: ${format(profit)}<br>
-            You Pay: ${format(convertedAmount)}<br>`;
-        }
-    }
-
-    function sendWhatsApp() {
-        let amount = document.getElementById("amount").value;
-
-        let senderName = document.getElementById("senderName").value;
-        let senderPhone = document.getElementById("senderPhone").value;
-
-        let accName = document.getElementById("accName").value;
-        let bankName = document.getElementById("bankName").value;
-        let accNumber = document.getElementById("accNumber").value;
-
-        if (!senderName || !senderPhone) return alert("Enter payment sender details");
-        if (!accName || !bankName || !accNumber) return alert("Enter account details");
-
-        let message =
-`💱 NEW ORDER
-
-Type: ${type}
-Customer Sent: ${format(amount)}
-Customer Receives: ${format(convertedAmount)}
-
-💳 PAYMENT DETAILS:
-Name: ${senderName}
-Phone: ${senderPhone}
-
-🏦 RECEIVING ACCOUNT:
-Name: ${accName}
-Bank: ${bankName}
-Account: ${accNumber}
-
-✔ Ready for processing`;
-
-        let phone = "233542632169";
-
-        window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(message));
-    }
+// register service worker
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js');
+}
 </script>
 
 </body>
