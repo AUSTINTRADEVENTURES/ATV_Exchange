@@ -1,10 +1,15 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ATV Exchange</title>
+    <title>Swift Exchange</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
+    <!-- PWA -->
     <link rel="manifest" href="./manifest.json">
+
+    <!-- Firebase CDN -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
     <style>
         body {
@@ -14,9 +19,7 @@
             color: white;
         }
 
-        .app {
-            padding: 20px;
-        }
+        .app { padding: 20px; }
 
         .card {
             background: #1c2b36;
@@ -57,13 +60,6 @@
             border-radius: 10px;
             margin-top: 10px;
         }
-
-        .adminBox {
-            background: #1b5e20;
-            padding: 10px;
-            border-radius: 10px;
-            margin-top: 10px;
-        }
     </style>
 </head>
 
@@ -71,7 +67,7 @@
 
 <div class="app">
 
-    <h2>💱 ATV Exchange</h2>
+    <h2>💱 Swift Exchange</h2>
 
     <button onclick="openDashboard()">📊 Dashboard</button>
 
@@ -113,17 +109,27 @@
 
     <!-- DASHBOARD -->
     <div class="card hidden" id="dashboard">
-
         <h3>📊 Transactions</h3>
         <div id="transactions"></div>
-
-        <button onclick="clearData()">Clear All</button>
-
     </div>
 
 </div>
 
 <script>
+
+// FIREBASE CONFIG (YOURS)
+const firebaseConfig = {
+  apiKey: "AIzaSyBQiE6s-oBHwmFcBe_7ghcYb6hEZytTFXw",
+  authDomain: "atvexchange.firebaseapp.com",
+  projectId: "atvexchange",
+  storageBucket: "atvexchange.firebasestorage.app",
+  messagingSenderId: "329015821953",
+  appId: "1:329015821953:web:a4143f30b537e970432f80",
+  measurementId: "G-K4GJ5N6K3C"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
 // RATES
 const marketCedisToNaira = 117.647;
@@ -197,19 +203,19 @@ function sendWhatsApp(){
     if(!senderName || !senderPhone) return alert("Enter sender details");
     if(!accName || !bankName || !accNumber) return alert("Enter account details");
 
-    // SAVE TRANSACTION
-    let data = JSON.parse(localStorage.getItem("tx")) || [];
-
-    data.push({
+    // SAVE TO FIREBASE
+    db.collection("transactions").add({
         type,
         amount,
         convertedAmount,
         profit,
+        senderName,
+        senderPhone,
         accName,
+        bankName,
+        accNumber,
         date: new Date().toLocaleString()
     });
-
-    localStorage.setItem("tx", JSON.stringify(data));
 
     let message =
 `💱 NEW ORDER
@@ -234,36 +240,34 @@ No: ${accNumber}`;
 function openDashboard(){
     document.getElementById("dashboard").classList.remove("hidden");
 
-    let data = JSON.parse(localStorage.getItem("tx")) || [];
     let container = document.getElementById("transactions");
 
-    if(data.length === 0){
-        container.innerHTML = "No transactions yet";
-        return;
-    }
+    db.collection("transactions").get().then(snapshot => {
 
-    let html = "";
+        if(snapshot.empty){
+            container.innerHTML = "No transactions yet";
+            return;
+        }
 
-    data.reverse().forEach(tx=>{
-        html += `
-        <div style="margin:10px; background:#2a3c48; padding:10px; border-radius:10px;">
-        ${tx.type}<br>
-        Sent: ${tx.amount}<br>
-        Pay: ${tx.convertedAmount}<br>
-        Profit: ${tx.profit}<br>
-        Name: ${tx.accName}<br>
-        ${tx.date}
-        </div>
-        `;
+        let html = "";
+
+        snapshot.forEach(doc=>{
+            let tx = doc.data();
+
+            html += `
+            <div style="margin:10px; background:#2a3c48; padding:10px; border-radius:10px;">
+            ${tx.type}<br>
+            Sent: ${tx.amount}<br>
+            Pay: ${tx.convertedAmount}<br>
+            Profit: ${tx.profit}<br>
+            Name: ${tx.accName}<br>
+            ${tx.date}
+            </div>
+            `;
+        });
+
+        container.innerHTML = html;
     });
-
-    container.innerHTML = html;
-}
-
-function clearData(){
-    localStorage.removeItem("tx");
-    alert("Cleared");
-    openDashboard();
 }
 
 // SERVICE WORKER
