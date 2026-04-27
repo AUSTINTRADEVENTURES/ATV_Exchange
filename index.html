@@ -247,7 +247,12 @@ Account: ${accNumber}
 
         window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(message));
     }
+</script> 
+if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js")
+    .then(() => console.log("Service Worker Registered"))
+    .catch(err => console.log("SW Error:", err));
+}
 </script>
-
 </body>
 </html>
