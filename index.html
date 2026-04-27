@@ -4,62 +4,44 @@
     <title>Swift Exchange</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- PWA -->
     <link rel="manifest" href="./manifest.json">
 
-    <!-- Firebase CDN -->
+    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
     <style>
         body {
-            margin: 0;
+            margin:0;
             font-family: Arial;
-            background: #0f2027;
-            color: white;
+            background:#0f2027;
+            color:white;
         }
-
-        .app { padding: 20px; }
-
-        .card {
-            background: #1c2b36;
-            padding: 15px;
-            border-radius: 15px;
-            margin-top: 15px;
+        .app{padding:20px;}
+        .card{
+            background:#1c2b36;
+            padding:15px;
+            border-radius:15px;
+            margin-top:15px;
         }
-
-        input, select {
-            width: 100%;
-            padding: 12px;
-            margin-top: 10px;
-            border-radius: 10px;
-            border: none;
+        input, select{
+            width:100%;
+            padding:12px;
+            margin-top:10px;
+            border-radius:10px;
+            border:none;
         }
-
-        button {
-            width: 100%;
-            padding: 12px;
-            margin-top: 10px;
-            border-radius: 10px;
-            border: none;
-            background: #25D366;
-            color: white;
+        button{
+            width:100%;
+            padding:12px;
+            margin-top:10px;
+            border:none;
+            border-radius:10px;
+            background:#25D366;
+            color:white;
         }
-
-        .result {
-            margin-top: 10px;
-            font-size: 18px;
-            font-weight: bold;
-        }
-
-        .hidden { display: none; }
-
-        .payment {
-            background: #2a3c48;
-            padding: 10px;
-            border-radius: 10px;
-            margin-top: 10px;
-        }
+        .hidden{display:none;}
     </style>
 </head>
 
@@ -67,210 +49,159 @@
 
 <div class="app">
 
-    <h2>💱 Swift Exchange</h2>
+<h2>💱 Swift Exchange</h2>
 
-    <button onclick="openDashboard()">📊 Dashboard</button>
+<!-- LOGIN -->
+<div class="card" id="loginBox">
+    <h3>Admin Login</h3>
+    <input id="email" placeholder="Email">
+    <input id="password" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+</div>
 
-    <!-- PAGE 1 -->
-    <div class="card" id="page1">
+<!-- APP -->
+<div id="appBox" class="hidden">
 
-        <select id="type" onchange="updateResult()">
-            <option value="cedis">Cedis → Naira</option>
-            <option value="naira">Naira → Cedis</option>
-        </select>
+<button onclick="openDashboard()">📊 Dashboard</button>
 
-        <input type="number" id="amount" placeholder="Enter amount" oninput="updateResult()">
+<div class="card">
 
-        <div class="result" id="result"></div>
+<select id="type" onchange="updateResult()">
+<option value="cedis">Cedis → Naira</option>
+<option value="naira">Naira → Cedis</option>
+</select>
 
-        <button onclick="goToPayment()">Continue</button>
+<input id="amount" placeholder="Amount" oninput="updateResult()">
 
-    </div>
+<div id="result"></div>
 
-    <!-- PAGE 2 -->
-    <div class="card hidden" id="page2">
+<button onclick="goToPayment()">Continue</button>
 
-        <h3>Payment Details</h3>
+</div>
 
-        <div class="payment" id="paymentBox"></div>
+<div class="card hidden" id="page2">
 
-        <h3>Sender Details</h3>
-        <input id="senderName" placeholder="Sender Name">
-        <input id="senderPhone" placeholder="Sender Phone">
+<div id="paymentBox"></div>
 
-        <h3>Receiving Account</h3>
-        <input id="accName" placeholder="Account Name">
-        <input id="bankName" placeholder="Bank Name">
-        <input id="accNumber" placeholder="Account Number">
+<input id="senderName" placeholder="Sender Name">
+<input id="senderPhone" placeholder="Sender Phone">
 
-        <button onclick="sendWhatsApp()">Confirm on WhatsApp</button>
+<input id="accName" placeholder="Account Name">
+<input id="bankName" placeholder="Bank Name">
+<input id="accNumber" placeholder="Account Number">
 
-    </div>
+<button onclick="sendWhatsApp()">Confirm</button>
 
-    <!-- DASHBOARD -->
-    <div class="card hidden" id="dashboard">
-        <h3>📊 Transactions</h3>
-        <div id="transactions"></div>
-    </div>
+</div>
+
+<div class="card hidden" id="dashboard">
+<h3>Transactions</h3>
+<div id="transactions"></div>
+</div>
+
+</div>
 
 </div>
 
 <script>
 
-// FIREBASE CONFIG (YOURS)
+// FIREBASE CONFIG
 const firebaseConfig = {
   apiKey: "AIzaSyBQiE6s-oBHwmFcBe_7ghcYb6hEZytTFXw",
   authDomain: "atvexchange.firebaseapp.com",
-  projectId: "atvexchange",
-  storageBucket: "atvexchange.firebasestorage.app",
-  messagingSenderId: "329015821953",
-  appId: "1:329015821953:web:a4143f30b537e970432f80",
-  measurementId: "G-K4GJ5N6K3C"
+  projectId: "atvexchange"
 };
 
 firebase.initializeApp(firebaseConfig);
+
 const db = firebase.firestore();
+const auth = firebase.auth();
+
+// LOGIN
+function login(){
+    let email = document.getElementById("email").value;
+    let password = document.getElementById("password").value;
+
+    auth.signInWithEmailAndPassword(email, password)
+    .then(()=>{
+        document.getElementById("loginBox").classList.add("hidden");
+        document.getElementById("appBox").classList.remove("hidden");
+    })
+    .catch(()=>{
+        alert("Login failed");
+    });
+}
+
+// KEEP LOGIN STATE
+auth.onAuthStateChanged(user=>{
+    if(user){
+        document.getElementById("loginBox").classList.add("hidden");
+        document.getElementById("appBox").classList.remove("hidden");
+    }
+});
 
 // RATES
-const marketCedisToNaira = 117.647;
-const marketNairaToCedis = 119.048;
-
 const yourCedisToNaira = 116.27907;
 const yourNairaToCedis = 120.48193;
 
-let convertedAmount = 0;
-let profit = 0;
-let type = "cedis";
+let convertedAmount=0;
+let type="cedis";
 
-function format(num){
-    return Number(num).toLocaleString(undefined,{minimumFractionDigits:2});
+function format(n){
+    return Number(n).toLocaleString(undefined,{minimumFractionDigits:2});
 }
 
 function updateResult(){
-    let amount = document.getElementById("amount").value;
-    type = document.getElementById("type").value;
+    let amount=document.getElementById("amount").value;
+    type=document.getElementById("type").value;
 
     if(!amount) return;
 
-    if(type === "cedis"){
-        convertedAmount = amount * yourCedisToNaira;
-        profit = amount * (marketCedisToNaira - yourCedisToNaira);
-
-        document.getElementById("result").innerText =
-        format(amount)+" GHS = "+format(convertedAmount)+" NGN";
-
-    } else {
-        convertedAmount = amount / yourNairaToCedis;
-        profit = (amount / marketNairaToCedis) - convertedAmount;
-
-        document.getElementById("result").innerText =
-        format(amount)+" NGN = "+format(convertedAmount)+" GHS";
+    if(type==="cedis"){
+        convertedAmount=amount*yourCedisToNaira;
+        result.innerText=format(amount)+" → "+format(convertedAmount);
+    }else{
+        convertedAmount=amount/yourNairaToCedis;
+        result.innerText=format(amount)+" → "+format(convertedAmount);
     }
 }
 
 function goToPayment(){
-    let amount = document.getElementById("amount").value;
-    if(!amount) return alert("Enter amount");
-
-    let box = document.getElementById("paymentBox");
-
-    if(type === "cedis"){
-        box.innerHTML =
-        `<b>Send GHS (MoMo)</b><br>
-        0555736233<br>
-        Name: God of JECOB<br><br>
-        You Receive: ${format(convertedAmount)} NGN`;
-    } else {
-        box.innerHTML =
-        `<b>Send NGN (Bank)</b><br><br>
-        You Receive: ${format(convertedAmount)} GHS`;
-    }
-
-    document.getElementById("page1").classList.add("hidden");
     document.getElementById("page2").classList.remove("hidden");
 }
 
 function sendWhatsApp(){
 
-    let amount = document.getElementById("amount").value;
-    let senderName = document.getElementById("senderName").value;
-    let senderPhone = document.getElementById("senderPhone").value;
+    let amount=document.getElementById("amount").value;
+    let senderName=document.getElementById("senderName").value;
+    let accName=document.getElementById("accName").value;
 
-    let accName = document.getElementById("accName").value;
-    let bankName = document.getElementById("bankName").value;
-    let accNumber = document.getElementById("accNumber").value;
-
-    if(!senderName || !senderPhone) return alert("Enter sender details");
-    if(!accName || !bankName || !accNumber) return alert("Enter account details");
-
-    // SAVE TO FIREBASE
     db.collection("transactions").add({
-        type,
-        amount,
-        convertedAmount,
-        profit,
-        senderName,
-        senderPhone,
-        accName,
-        bankName,
-        accNumber,
-        date: new Date().toLocaleString()
+        type,amount,convertedAmount,senderName,accName,
+        date:new Date().toLocaleString()
     });
 
-    let message =
-`💱 NEW ORDER
-
-Type: ${type}
-Sent: ${format(amount)}
-Receive: ${format(convertedAmount)}
-
-Sender: ${senderName}
-Phone: ${senderPhone}
-
-Account: ${accName}
-Bank: ${bankName}
-No: ${accNumber}`;
-
-    let phone = "233542632169";
-
-    window.open("https://wa.me/"+phone+"?text="+encodeURIComponent(message));
+    window.open("https://wa.me/233542632169");
 }
 
 // DASHBOARD
 function openDashboard(){
+
     document.getElementById("dashboard").classList.remove("hidden");
 
-    let container = document.getElementById("transactions");
+    let container=document.getElementById("transactions");
 
-    db.collection("transactions").get().then(snapshot => {
-
-        if(snapshot.empty){
-            container.innerHTML = "No transactions yet";
-            return;
-        }
-
-        let html = "";
-
-        snapshot.forEach(doc=>{
-            let tx = doc.data();
-
-            html += `
-            <div style="margin:10px; background:#2a3c48; padding:10px; border-radius:10px;">
-            ${tx.type}<br>
-            Sent: ${tx.amount}<br>
-            Pay: ${tx.convertedAmount}<br>
-            Profit: ${tx.profit}<br>
-            Name: ${tx.accName}<br>
-            ${tx.date}
-            </div>
-            `;
+    db.collection("transactions").get().then(snap=>{
+        let html="";
+        snap.forEach(doc=>{
+            let tx=doc.data();
+            html+=`${tx.type} - ${tx.amount}<br>`;
         });
-
-        container.innerHTML = html;
+        container.innerHTML=html;
     });
 }
 
-// SERVICE WORKER
+// SW
 if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js");
 }
