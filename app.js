@@ -14,8 +14,7 @@ const storage = firebase.storage();
 
 // Replace this email with the Firebase login email that should see admin pages.
 const adminEmails = [
-""Ezeaugustinemmaduabuchi@gmail.com"
-"
+"Ezeaugustinemmaduabuchi@gmail.com"
 ];
 
 // Add public keys only. Never put secret keys inside this frontend file.
