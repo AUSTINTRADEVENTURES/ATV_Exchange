@@ -30,11 +30,7 @@
 
 <div class="card">
 <h3>Payment Method</h3>
-<select id="paymentProvider" onchange="updatePaymentMethod()">
-<option value="paystack">Paystack</option>
-<option value="flutterwave">Flutterwave</option>
-</select>
-
+<div>Paystack</div>
 <button id="onlinePayBtn" onclick="payOnline()">Pay Online</button>
 <div id="paymentStatus"></div>
 </div>
@@ -53,7 +49,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 <script src="https://js.paystack.co/v2/inline.js"></script>
-<script src="https://checkout.flutterwave.com/v3.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

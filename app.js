@@ -14,21 +14,30 @@ const storage = firebase.storage();
 
 // Replace this email with the Firebase login email that should see admin pages.
 const adminEmails = [
-"admin@example.com"
+""Ezeaugustinemmaduabuchi@gmail.com"
+"
 ];
 
 // Add public keys only. Never put secret keys inside this frontend file.
 const paymentSettings = {
-paystackPublicKey: "",
-flutterwavePublicKey: ""
+paystackPublicKey: "pk_live_62f225ccb28c9d50340b7ad717783300572ff29e"
 };
 
-const rateCedis = 116.27907;
-const rateNaira = 120.48193;
+// Cloudinary unsigned upload settings for KYC documents.
+// Create an unsigned upload preset in Cloudinary, then put your values here.
+const cloudinarySettings = {
+cloudName: "dmf7h49yl",
+uploadPreset: "MYEXCGANGEAPP"
+};
 
-// These are your business cost rates. Change them when you know your real buying rates.
-const costRateCedisToNaira = 116.27907;
-const costRateNairaToCedis = 120.48193;
+const defaultRateSettings = {
+rateCedis: 116.27907,
+rateNaira: 120.48193,
+costRateCedisToNaira: 116.27907,
+costRateNairaToCedis: 120.48193,
+cedisEnabled: true,
+nairaEnabled: true
+};
 
 const countryIdTypes = {
 "Ghana": [
@@ -110,6 +119,7 @@ let allKycProfiles = [];
 let currentUser = null;
 let currentProfile = null;
 let isAdmin = false;
+let rateSettings = {...defaultRateSettings};
 
 auth.onAuthStateChanged(user=>{
 currentUser = user;
@@ -129,6 +139,7 @@ return;
 
 showAdminButtons();
 
+if(page === "exchange.html") loadRateSettings();
 if(page === "profile.html") loadProfilePage();
 if(page === "payment.html") loadPaymentPage();
 if(page === "orders.html") loadMyOrdersPage();
@@ -136,6 +147,7 @@ if(page === "dashboard.html") requireAdmin(loadDashboard);
 if(page === "profit.html") requireAdmin(loadProfitDashboard);
 if(page === "customers.html") requireAdmin(loadCustomersPage);
 if(page === "kyc-admin.html") requireAdmin(loadKycReviewPage);
+if(page === "rates.html") requireAdmin(loadRatesPage);
 });
 
 function getPageName(){
@@ -152,6 +164,7 @@ if(document.getElementById("dashboardBtn")) dashboardBtn.classList.toggle("hidde
 if(document.getElementById("profitBtn")) profitBtn.classList.toggle("hidden", !isAdmin);
 if(document.getElementById("customersBtn")) customersBtn.classList.toggle("hidden", !isAdmin);
 if(document.getElementById("kycBtn")) kycBtn.classList.toggle("hidden", !isAdmin);
+if(document.getElementById("ratesBtn")) ratesBtn.classList.toggle("hidden", !isAdmin);
 }
 
 async function getCustomerProfile(){
@@ -237,7 +250,21 @@ maximumFractionDigits:2
 });
 }
 
-function updateResult(){
+async function loadRateSettings(){
+let doc = await db.collection("settings").doc("rates").get();
+
+if(doc.exists){
+rateSettings = {...defaultRateSettings, ...doc.data()};
+}else{
+rateSettings = {...defaultRateSettings};
+}
+
+return rateSettings;
+}
+
+async function updateResult(){
+await loadRateSettings();
+
 let amountValue = Number(amount.value);
 let typeValue = type.value;
 
@@ -248,25 +275,42 @@ return;
 }
 
 if(typeValue==="cedis"){
-converted = amountValue * rateCedis;
+if(!rateSettings.cedisEnabled){
+converted = 0;
+result.innerText = "Cedis -> Naira is currently unavailable";
+return;
+}
+
+converted = amountValue * Number(rateSettings.rateCedis);
 result.innerText = format(amountValue)+" GHS = "+format(converted)+" NGN";
 }else{
-converted = amountValue / rateNaira;
+if(!rateSettings.nairaEnabled){
+converted = 0;
+result.innerText = "Naira -> Cedis is currently unavailable";
+return;
+}
+
+converted = amountValue / Number(rateSettings.rateNaira);
 result.innerText = format(amountValue)+" NGN = "+format(converted)+" GHS";
 }
 }
 
-function saveExchangeAndContinue(){
+async function saveExchangeAndContinue(){
 let amountValue = Number(amount.value);
 
 if(!amountValue || amountValue <= 0) return alert("Enter a valid amount");
 
-updateResult();
+await updateResult();
+if(converted <= 0) return alert("This exchange direction is currently unavailable");
 
 let draft = {
 type: type.value,
 amount: amountValue,
-converted
+converted,
+rateCedis: Number(rateSettings.rateCedis),
+rateNaira: Number(rateSettings.rateNaira),
+costRateCedisToNaira: Number(rateSettings.costRateCedisToNaira),
+costRateNairaToCedis: Number(rateSettings.costRateNairaToCedis)
 };
 
 localStorage.setItem("exchangeDraft", JSON.stringify(draft));
@@ -325,9 +369,7 @@ file
 if(!kycDocumentUrl && !file) return alert("Upload your KYC document");
 
 if(file){
-let ref = storage.ref("kyc/"+currentUser.uid+"/"+Date.now()+"-"+file.name);
-await ref.put(file);
-kycDocumentUrl = await ref.getDownloadURL();
+kycDocumentUrl = await uploadToCloudinary(file);
 }
 
 await db.collection("users").doc(currentUser.uid).set({
@@ -346,6 +388,30 @@ updatedAt: new Date().toLocaleString()
 
 currentProfile = await getCustomerProfile();
 profileStatus.innerText = "Profile/KYC saved successfully.";
+}
+
+async function uploadToCloudinary(file){
+if(!cloudinarySettings.cloudName || !cloudinarySettings.uploadPreset){
+alert("Add your Cloudinary cloud name and unsigned upload preset in app.js first");
+throw new Error("Missing Cloudinary settings");
+}
+
+let formData = new FormData();
+formData.append("file", file);
+formData.append("upload_preset", cloudinarySettings.uploadPreset);
+formData.append("folder", "swift-exchange/kyc");
+
+let response = await fetch("https://api.cloudinary.com/v1_1/"+cloudinarySettings.cloudName+"/auto/upload", {
+method: "POST",
+body: formData
+});
+
+if(!response.ok){
+throw new Error("Cloudinary upload failed");
+}
+
+let data = await response.json();
+return data.secure_url;
 }
 
 async function loadPaymentPage(){
@@ -411,7 +477,6 @@ return "NGN";
 }
 
 function payOnline(){
-let provider = paymentProvider.value;
 let paymentAmount = getPaymentAmount();
 let currency = getPaymentCurrency();
 
@@ -420,12 +485,7 @@ if(!isProfileComplete(currentProfile)) return alert("Complete your Profile/KYC f
 if(!isKycApproved(currentProfile)) return alert("Your KYC must be approved before payment");
 
 paymentReference = "ATV-PAY-"+Date.now();
-
-if(provider==="paystack"){
 startPaystackPayment(paymentAmount, currency);
-}else{
-startFlutterwavePayment(paymentAmount, currency);
-}
 }
 
 function startPaystackPayment(paymentAmount, currency){
@@ -455,49 +515,21 @@ paymentStatus.innerText = "Payment cancelled";
 });
 }
 
-function startFlutterwavePayment(paymentAmount, currency){
-if(!paymentSettings.flutterwavePublicKey){
-return alert("Add your Flutterwave public key in paymentSettings first");
-}
-
-FlutterwaveCheckout({
-public_key: paymentSettings.flutterwavePublicKey,
-tx_ref: paymentReference,
-amount: paymentAmount,
-currency,
-customer: {
-email: currentProfile.email,
-phone_number: currentProfile.phone,
-name: currentProfile.name
-},
-customizations: {
-title: "Swift Exchange",
-description: "Exchange payment"
-},
-callback: function(data){
-paymentReference = data.transaction_id || data.tx_ref;
-paymentStatus.innerText = "Payment successful: "+paymentReference;
-},
-onclose: function(){
-paymentStatus.innerText = "Payment closed";
-}
-});
-}
-
 function calculateProfit(typeValue, amountValue, convertedValue){
 if(typeValue==="cedis"){
-return amountValue * rateCedis - amountValue * costRateCedisToNaira;
+let customerRate = Number(rateSettings.rateCedis);
+let costRate = Number(rateSettings.costRateCedisToNaira);
+return amountValue * customerRate - amountValue * costRate;
 }
 
-let businessCost = amountValue / costRateNairaToCedis;
+let costRate = Number(rateSettings.costRateNairaToCedis);
+let businessCost = amountValue / costRate;
 return businessCost - convertedValue;
 }
 
 async function submitOrder(){
 let draft = getDraft();
 if(!draft) return alert("Start with the exchange page first");
-
-let provider = paymentProvider.value;
 
 currentProfile = currentProfile || await getCustomerProfile();
 
@@ -509,6 +541,13 @@ if(!accNumber.value) return alert("Enter account number");
 if(!paymentReference) return alert("Complete online payment first");
 
 let orderID = "ATV-"+Date.now();
+rateSettings = {
+...rateSettings,
+rateCedis: Number(draft.rateCedis || rateSettings.rateCedis),
+rateNaira: Number(draft.rateNaira || rateSettings.rateNaira),
+costRateCedisToNaira: Number(draft.costRateCedisToNaira || rateSettings.costRateCedisToNaira),
+costRateNairaToCedis: Number(draft.costRateNairaToCedis || rateSettings.costRateNairaToCedis)
+};
 let profit = calculateProfit(draft.type, Number(draft.amount), Number(draft.converted));
 
 await db.collection("transactions").add({
@@ -526,8 +565,12 @@ kycStatus: currentProfile.kycStatus || "Submitted",
 accName: accName.value,
 bankName: bankName.value,
 accNumber: accNumber.value,
-paymentProvider: provider,
+paymentProvider: "paystack",
 paymentReference,
+rateCedis: Number(draft.rateCedis || rateSettings.rateCedis),
+rateNaira: Number(draft.rateNaira || rateSettings.rateNaira),
+costRateCedisToNaira: Number(draft.costRateCedisToNaira || rateSettings.costRateCedisToNaira),
+costRateNairaToCedis: Number(draft.costRateNairaToCedis || rateSettings.costRateNairaToCedis),
 profit,
 status: "Paid",
 date: new Date().toLocaleString()
@@ -856,6 +899,41 @@ kycReviewedAt: new Date().toLocaleString()
 });
 
 loadKycReviewPage();
+}
+
+async function loadRatesPage(){
+await loadRateSettings();
+
+rateCedisInput.value = rateSettings.rateCedis;
+rateNairaInput.value = rateSettings.rateNaira;
+costRateCedisInput.value = rateSettings.costRateCedisToNaira;
+costRateNairaInput.value = rateSettings.costRateNairaToCedis;
+cedisEnabledInput.checked = Boolean(rateSettings.cedisEnabled);
+nairaEnabledInput.checked = Boolean(rateSettings.nairaEnabled);
+ratesStatus.innerText = "Rates loaded.";
+}
+
+async function saveRates(){
+if(!isAdmin) return alert("Admin only");
+
+let newRates = {
+rateCedis: Number(rateCedisInput.value),
+rateNaira: Number(rateNairaInput.value),
+costRateCedisToNaira: Number(costRateCedisInput.value),
+costRateNairaToCedis: Number(costRateNairaInput.value),
+cedisEnabled: cedisEnabledInput.checked,
+nairaEnabled: nairaEnabledInput.checked,
+updatedBy: currentUser.email,
+updatedAt: new Date().toLocaleString()
+};
+
+if(!newRates.rateCedis || !newRates.rateNaira || !newRates.costRateCedisToNaira || !newRates.costRateNairaToCedis){
+return alert("Enter all rate values");
+}
+
+await db.collection("settings").doc("rates").set(newRates,{merge:true});
+rateSettings = {...defaultRateSettings, ...newRates};
+ratesStatus.innerText = "Rates saved successfully.";
 }
 
 if ("serviceWorker" in navigator) {

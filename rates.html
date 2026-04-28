@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange - Profit</title>
+<title>Swift Exchange - Rates</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
@@ -10,19 +10,35 @@
 
 <body>
 <div class="app">
-<h2>Profit Dashboard</h2>
+<h2>Rate Management</h2>
 
 <div class="nav">
 <button onclick="goToPage('exchange.html')">Exchange</button>
 <button onclick="goToPage('dashboard.html')">Dashboard</button>
+<button onclick="goToPage('profit.html')">Profit</button>
 <button onclick="goToPage('customers.html')">Customers</button>
 <button onclick="goToPage('kyc-admin.html')">KYC Review</button>
-<button onclick="goToPage('rates.html')">Rates</button>
 <button onclick="logout()">Logout</button>
 </div>
 
 <div class="card">
-<div id="profitSummary"></div>
+<h3>Customer Exchange Rates</h3>
+<input id="rateCedisInput" type="number" step="0.00001" placeholder="Cedis to Naira rate">
+<input id="rateNairaInput" type="number" step="0.00001" placeholder="Naira to Cedis divisor rate">
+</div>
+
+<div class="card">
+<h3>Business Cost Rates</h3>
+<input id="costRateCedisInput" type="number" step="0.00001" placeholder="Business cost: Cedis to Naira">
+<input id="costRateNairaInput" type="number" step="0.00001" placeholder="Business cost: Naira to Cedis divisor">
+</div>
+
+<div class="card">
+<h3>Exchange Availability</h3>
+<label><input id="cedisEnabledInput" type="checkbox"> Enable Cedis -> Naira</label>
+<label><input id="nairaEnabledInput" type="checkbox"> Enable Naira -> Cedis</label>
+<button onclick="saveRates()">Save Rates</button>
+<div id="ratesStatus"></div>
 </div>
 </div>
 
