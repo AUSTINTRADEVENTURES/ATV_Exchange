@@ -19,16 +19,6 @@ body{margin:0;font-family:Arial;background:#0f2027;color:white;}
 input,select{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:none;}
 button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;background:#25D366;color:white;}
 .hidden{display:none;}
-
-.tx-card{background:#1c2b36;padding:15px;border-radius:12px;margin-top:12px;}
-.status{padding:4px 10px;border-radius:20px;font-size:12px;display:inline-block;margin-bottom:8px;}
-.pending{background:#ffc107;color:black;}
-.paid{background:#2196f3;}
-.completed{background:#4caf50;}
-.btn{padding:6px 10px;margin-top:5px;border:none;border-radius:6px;font-size:12px;}
-.btn-paid{background:#2196f3;color:white;}
-.btn-complete{background:#4caf50;color:white;}
-.link{color:#00ffcc;text-decoration:none;}
 </style>
 </head>
 
@@ -40,62 +30,66 @@ button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;ba
 
 <!-- LOGIN -->
 <div class="card" id="loginBox">
-<h3>Admin Login</h3>
 <input id="email" placeholder="Email">
 <input id="password" type="password" placeholder="Password">
 <button onclick="login()">Login</button>
 </div>
 
-<!-- MAIN APP -->
+<!-- MAIN -->
 <div id="appBox" class="hidden">
 
+<!-- DASHBOARD BUTTON -->
 <button onclick="openDashboard()">📊 Dashboard</button>
 
+<!-- CONVERTER -->
 <div class="card">
-<select id="type" onchange="updateResult()">
+
+<select id="type">
 <option value="cedis">Cedis → Naira</option>
 <option value="naira">Naira → Cedis</option>
 </select>
 
-<input id="amount" placeholder="Amount" oninput="updateResult()">
+<input id="amount" placeholder="Enter amount" oninput="updateResult()">
+
 <div id="result"></div>
 
 <button onclick="goToPayment()">Continue</button>
+
 </div>
 
-<div class="card hidden" id="page2">
+<!-- PAYMENT -->
+<div class="card hidden" id="paymentPage">
 
 <div id="paymentBox"></div>
 
+<h3>Sender Details</h3>
 <input id="senderName" placeholder="Sender Name">
 <input id="senderPhone" placeholder="Sender Phone">
 
+<h3>Receiving Account</h3>
 <input id="accName" placeholder="Account Name">
 <input id="bankName" placeholder="Bank Name">
 <input id="accNumber" placeholder="Account Number">
 
-<h4>Upload Receipt</h4>
+<h3>Upload Receipt</h3>
 <input type="file" id="receipt">
 
-<button onclick="sendWhatsApp()">Confirm</button>
+<button onclick="submitOrder()">Submit Order</button>
 
 </div>
 
 <!-- DASHBOARD -->
 <div class="card hidden" id="dashboard">
-
-<input id="searchInput" placeholder="Search..." oninput="searchTx()">
-
 <div id="transactions"></div>
-
 </div>
 
 </div>
+
 </div>
 
 <script>
 
-// FIREBASE CONFIG
+// FIREBASE
 const firebaseConfig = {
 apiKey: "AIzaSyBQiE6s-oBHwmFcBe_7ghcYb6hEZytTFXw",
 authDomain: "atvexchange.firebaseapp.com",
@@ -109,175 +103,107 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 const storage = firebase.storage();
 
-// LOGIN
-function login(){
-let email=emailInput.value;
-let password=passwordInput.value;
-
-auth.signInWithEmailAndPassword(email,password)
-.then(()=>{
-loginBox.classList.add("hidden");
-appBox.classList.remove("hidden");
-})
-.catch(()=>alert("Login failed"));
-}
+// LOGIN FIX (NO FLICKER)
+document.getElementById("appBox").style.display = "none";
 
 auth.onAuthStateChanged(user=>{
 if(user){
-loginBox.classList.add("hidden");
-appBox.classList.remove("hidden");
+loginBox.style.display="none";
+appBox.style.display="block";
 }
 });
 
-// RATES
-const yourCedisToNaira=116.27907;
-const yourNairaToCedis=120.48193;
-
-let convertedAmount=0;
-let type="cedis";
-
-function format(n){
-return Number(n).toLocaleString(undefined,{minimumFractionDigits:2});
+// LOGIN
+function login(){
+auth.signInWithEmailAndPassword(email.value,password.value)
+.catch(()=>alert("Login failed"));
 }
 
-function updateResult(){
-let amount=amountInput.value;
-type=typeSelect.value;
+// RATES
+const rateCedis=116.27907;
+const rateNaira=120.48193;
 
-if(!amount)return;
+let converted=0;
+
+// FIXED CONVERSION
+function updateResult(){
+
+let amount = document.getElementById("amount").value;
+let type = document.getElementById("type").value;
+
+if(!amount) return;
 
 if(type==="cedis"){
-convertedAmount=amount*yourCedisToNaira;
-result.innerText=format(amount)+" → "+format(convertedAmount);
+converted = amount * rateCedis;
+result.innerText = amount+" GHS = "+converted.toFixed(2)+" NGN";
 }else{
-convertedAmount=amount/yourNairaToCedis;
-result.innerText=format(amount)+" → "+format(convertedAmount);
+converted = amount / rateNaira;
+result.innerText = amount+" NGN = "+converted.toFixed(2)+" GHS";
 }
 }
 
+// PAYMENT PAGE
 function goToPayment(){
-page2.classList.remove("hidden");
+
+let type = document.getElementById("type").value;
+
+paymentPage.classList.remove("hidden");
+
+if(type==="cedis"){
+paymentBox.innerHTML = `
+Send GHS to:<br>
+0555736233<br>
+Name: God of JECOB
+`;
+}else{
+paymentBox.innerHTML = `
+Send NGN to your bank account (manual processing)
+`;
+}
 }
 
-// SEND ORDER
-async function sendWhatsApp(){
+// SUBMIT ORDER
+async function submitOrder(){
 
-let amount=amountInput.value;
-let senderName=senderNameInput.value;
-let senderPhone=senderPhoneInput.value;
-
-let accName=accNameInput.value;
-let bankName=bankNameInput.value;
-let accNumber=accNumberInput.value;
-
-let file=document.getElementById("receipt").files[0];
-
+let file = document.getElementById("receipt").files[0];
 if(!file) return alert("Upload receipt");
 
-let orderID="ATV-"+Date.now();
+let orderID = "ATV-"+Date.now();
 
-// upload receipt
-let ref=storage.ref("receipts/"+orderID);
+let ref = storage.ref("receipts/"+orderID);
 await ref.put(file);
-let url=await ref.getDownloadURL();
+let url = await ref.getDownloadURL();
 
-// save data
 await db.collection("transactions").add({
-orderID,type,amount,convertedAmount,
-senderName,senderPhone,accName,bankName,accNumber,
-receipt:url,status:"Pending",
+orderID,
+amount:amount.value,
+converted,
+status:"Pending",
+receipt:url,
 date:new Date().toLocaleString()
 });
 
-// whatsapp
 window.open("https://wa.me/233542632169?text=Order%20ID:%20"+orderID);
 }
 
 // DASHBOARD
-let allTransactions=[];
-
 function openDashboard(){
+
 dashboard.classList.remove("hidden");
 
 db.collection("transactions").get().then(snap=>{
-allTransactions=[];
+let html="";
 snap.forEach(doc=>{
 let tx=doc.data();
-tx.id=doc.id;
-allTransactions.push(tx);
-});
-displayTransactions(allTransactions);
-});
-}
-
-function displayTransactions(data){
-
-if(data.length===0){
-transactions.innerHTML="No data";
-return;
-}
-
-let html="";
-
-data.forEach(tx=>{
-
-let statusClass="pending";
-if(tx.status==="Paid") statusClass="paid";
-if(tx.status==="Completed") statusClass="completed";
-
 html+=`
-<div class="tx-card">
-
-<div class="status ${statusClass}">
+<div style="margin:10px;padding:10px;background:#2a3c48;border-radius:10px;">
+${tx.orderID}<br>
+${tx.amount}<br>
 ${tx.status}
-</div>
-
-<div>Order: ${tx.orderID}</div>
-<div>Sent: ${tx.amount}</div>
-<div>Pay: ${tx.convertedAmount}</div>
-
-<a href="${tx.receipt}" target="_blank" class="link">
-View Receipt
-</a>
-
-<button class="btn btn-paid" onclick="markPaid('${tx.id}')">
-Paid
-</button>
-
-<button class="btn btn-complete" onclick="markCompleted('${tx.id}')">
-Complete
-</button>
-
-<div>${tx.date}</div>
-
-</div>
-`;
+</div>`;
 });
-
 transactions.innerHTML=html;
-}
-
-// SEARCH
-function searchTx(){
-let val=searchInput.value.toLowerCase();
-
-let filtered=allTransactions.filter(tx=>
-(tx.orderID&&tx.orderID.toLowerCase().includes(val))||
-(tx.accName&&tx.accName.toLowerCase().includes(val))
-);
-
-displayTransactions(filtered);
-}
-
-// STATUS
-function markPaid(id){
-db.collection("transactions").doc(id).update({status:"Paid"});
-openDashboard();
-}
-
-function markCompleted(id){
-db.collection("transactions").doc(id).update({status:"Completed"});
-openDashboard();
+});
 }
 
 // SW
