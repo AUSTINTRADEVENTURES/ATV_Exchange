@@ -232,8 +232,31 @@ callback();
 }
 
 function login(){
+if(!email.value) return alert("Enter email");
+if(!password.value) return alert("Enter password");
+
 auth.signInWithEmailAndPassword(email.value,password.value)
-.catch(()=>alert("Login failed"));
+.catch(error=>{
+if(document.getElementById("loginStatus")){
+loginStatus.innerText = error.message;
+}else{
+alert(error.message);
+}
+});
+}
+
+function register(){
+if(!email.value) return alert("Enter email");
+if(!password.value) return alert("Enter password");
+
+auth.createUserWithEmailAndPassword(email.value,password.value)
+.catch(error=>{
+if(document.getElementById("loginStatus")){
+loginStatus.innerText = error.message;
+}else{
+alert(error.message);
+}
+});
 }
 
 function logout(){
