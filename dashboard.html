@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange - Login</title>
+<title>Swift Exchange - Dashboard</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
@@ -10,13 +10,18 @@
 
 <body>
 <div class="app">
-<h2>Swift Exchange</h2>
+<h2>Admin Dashboard</h2>
+
+<div class="nav">
+<button onclick="goToPage('exchange.html')">Exchange</button>
+<button onclick="goToPage('profit.html')">Profit</button>
+<button onclick="goToPage('customers.html')">Customers</button>
+<button onclick="logout()">Logout</button>
+</div>
 
 <div class="card">
-<h3>Login</h3>
-<input id="email" type="email" placeholder="Email">
-<input id="password" type="password" placeholder="Password">
-<button onclick="login()">Login</button>
+<input id="searchInput" placeholder="Search..." oninput="searchTx()">
+<div id="transactions"></div>
 </div>
 </div>
 

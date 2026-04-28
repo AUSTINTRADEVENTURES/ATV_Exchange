@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Swift Exchange - Profile/KYC</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css">
+</head>
+
+<body>
+<div class="app">
+<h2>Customer Profile/KYC</h2>
+
+<div class="nav">
+<button onclick="goToPage('exchange.html')">Exchange</button>
+<button onclick="logout()">Logout</button>
+</div>
+
+<div class="card">
+<h3>Basic Details</h3>
+<input id="profileName" placeholder="Full Name">
+<input id="profilePhone" placeholder="Phone Number">
+<input id="profileEmail" type="email" placeholder="Email">
+<select id="profileCountry" onchange="updateIdTypes()">
+<option value="">Select Country</option>
+</select>
+<input id="profileAddress" placeholder="Address">
+</div>
+
+<div class="card">
+<h3>KYC Details</h3>
+<select id="idType">
+<option value="">Select ID Type</option>
+<option value="ghana-card">Ghana Card</option>
+<option value="passport">Passport</option>
+<option value="drivers-license">Driver's License</option>
+<option value="voter-id">Voter ID</option>
+</select>
+<input id="idNumber" placeholder="ID Number">
+<div class="help">Upload a clear image/PDF of the ID document.</div>
+<input type="file" id="kycDocument">
+<button onclick="saveProfile()">Save Profile/KYC</button>
+<div id="profileStatus"></div>
+</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+body{margin:0;font-family:Arial;background:#0f2027;color:white;}
+.app{padding:20px;max-width:760px;margin:0 auto;}
+.card{background:#1c2b36;padding:15px;border-radius:15px;margin-top:15px;}
+.nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:10px;}
+input,select{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:none;box-sizing:border-box;}
+button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;background:#25D366;color:white;cursor:pointer;}
+.hidden{display:none;}
+.help{font-size:13px;color:#c9d6df;margin-top:5px;}
+.result{margin-top:12px;font-weight:bold;}
+.tx-card{background:#243947;padding:15px;border-radius:12px;margin-top:12px;}
+.status{display:inline-block;padding:5px 10px;border-radius:20px;font-size:12px;margin-bottom:10px;}
+.pending{background:#ffc107;color:black;}
+.paid{background:#2196f3;}
+.completed{background:#4caf50;}
+.link{color:#00ffcc;text-decoration:none;display:inline-block;margin-top:10px;}

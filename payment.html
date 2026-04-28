@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Swift Exchange - Payment</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css">
+</head>
+
+<body>
+<div class="app">
+<h2>Payment</h2>
+
+<div class="nav">
+<button onclick="goToPage('exchange.html')">Back</button>
+<button onclick="goToPage('profile.html')">Profile/KYC</button>
+<button onclick="logout()">Logout</button>
+</div>
+
+<div class="card">
+<div id="orderSummary"></div>
+</div>
+
+<div class="card">
+<h3>Customer Profile</h3>
+<div id="profileSummary">Loading profile...</div>
+</div>
+
+<div class="card">
+<h3>Payment Method</h3>
+<select id="paymentProvider" onchange="updatePaymentMethod()">
+<option value="paystack">Paystack</option>
+<option value="flutterwave">Flutterwave</option>
+</select>
+
+<button id="onlinePayBtn" onclick="payOnline()">Pay Online</button>
+<div id="paymentStatus"></div>
+</div>
+
+<div class="card">
+<h3>Receiving Account</h3>
+<input id="accName" placeholder="Account Name">
+<input id="bankName" placeholder="Bank Name">
+<input id="accNumber" placeholder="Account Number">
+<button onclick="submitOrder()">Submit Order</button>
+</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="https://js.paystack.co/v2/inline.js"></script>
+<script src="https://checkout.flutterwave.com/v3.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
