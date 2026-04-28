@@ -2,6 +2,7 @@
 <html>
 <head>
 <title>ATV Exchange</title>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link rel="manifest" href="./manifest.json">
@@ -16,16 +17,16 @@
 body{margin:0;font-family:Arial;background:#0f2027;color:white;}
 .app{padding:20px;}
 .card{background:#1c2b36;padding:15px;border-radius:15px;margin-top:15px;}
-input,select{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:none;}
+input,select{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:none;box-sizing:border-box;}
 button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;background:#25D366;color:white;}
 .hidden{display:none;}
 
 .tx-card{background:#1c2b36;padding:15px;border-radius:12px;margin-top:12px;}
-.status{padding:5px 10px;border-radius:20px;font-size:12px;}
+.status{display:inline-block;padding:5px 10px;border-radius:20px;font-size:12px;margin-bottom:10px;}
 .pending{background:#ffc107;color:black;}
 .paid{background:#2196f3;}
 .completed{background:#4caf50;}
-.link{color:#00ffcc;text-decoration:none;}
+.link{color:#00ffcc;text-decoration:none;display:inline-block;margin-top:10px;}
 </style>
 </head>
 
@@ -33,7 +34,7 @@ button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;ba
 
 <div class="app">
 
-<h2>💱 Swift Exchange</h2>
+<h2>Swift Exchange</h2>
 
 <!-- LOGIN -->
 <div class="card" id="loginBox">
@@ -45,17 +46,18 @@ button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;ba
 <!-- MAIN -->
 <div id="appBox" class="hidden">
 
-<button onclick="openDashboard()">📊 Dashboard</button>
+<button onclick="logout()">Logout</button>
+<button onclick="openDashboard()">Dashboard</button>
 
 <!-- CONVERTER -->
 <div class="card">
 
-<select id="type">
-<option value="cedis">Cedis → Naira</option>
-<option value="naira">Naira → Cedis</option>
+<select id="type" onchange="updateResult()">
+<option value="cedis">Cedis -> Naira</option>
+<option value="naira">Naira -> Cedis</option>
 </select>
 
-<input id="amount" placeholder="Enter amount" oninput="updateResult()">
+<input id="amount" type="number" placeholder="Enter amount" oninput="updateResult()">
 
 <div id="result"></div>
 
@@ -113,17 +115,24 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 const storage = firebase.storage();
 
-// LOGIN FIX
+// LOGIN
 auth.onAuthStateChanged(user=>{
 if(user){
 loginBox.style.display="none";
 appBox.style.display="block";
+}else{
+loginBox.style.display="block";
+appBox.style.display="none";
 }
 });
 
 function login(){
 auth.signInWithEmailAndPassword(email.value,password.value)
 .catch(()=>alert("Login failed"));
+}
+
+function logout(){
+auth.signOut();
 }
 
 // FORMAT (COMMAS + DECIMALS)
@@ -143,28 +152,34 @@ let converted = 0;
 // CONVERSION
 function updateResult(){
 
-let amount = document.getElementById("amount").value;
-let type = document.getElementById("type").value;
+let amountValue = Number(amount.value);
+let typeValue = type.value;
 
-if(!amount) return;
+if(!amountValue || amountValue <= 0){
+converted = 0;
+result.innerText = "";
+return;
+}
 
-if(type==="cedis"){
-converted = amount * rateCedis;
-result.innerText = format(amount)+" GHS = "+format(converted)+" NGN";
+if(typeValue==="cedis"){
+converted = amountValue * rateCedis;
+result.innerText = format(amountValue)+" GHS = "+format(converted)+" NGN";
 }else{
-converted = amount / rateNaira;
-result.innerText = format(amount)+" NGN = "+format(converted)+" GHS";
+converted = amountValue / rateNaira;
+result.innerText = format(amountValue)+" NGN = "+format(converted)+" GHS";
 }
 }
 
 // PAYMENT PAGE
 function goToPayment(){
 
-let type = document.getElementById("type").value;
+let amountValue = Number(amount.value);
+if(!amountValue || amountValue <= 0) return alert("Enter a valid amount first");
 
+updateResult();
 paymentPage.classList.remove("hidden");
 
-if(type==="cedis"){
+if(type.value==="cedis"){
 paymentBox.innerHTML = `
 Send GHS (MoMo):<br>
 0555736233<br>
@@ -181,8 +196,19 @@ You will receive GHS via MoMo
 // ORDER
 async function submitOrder(){
 
+let typeValue = type.value;
+let amountValue = Number(amount.value);
 let file = receipt.files[0];
+
+if(!amountValue || amountValue <= 0) return alert("Enter a valid amount");
+if(!senderName.value) return alert("Enter sender name");
+if(!senderPhone.value) return alert("Enter sender phone");
+if(!accName.value) return alert("Enter account name");
+if(!bankName.value) return alert("Enter bank name");
+if(!accNumber.value) return alert("Enter account number");
 if(!file) return alert("Upload receipt");
+
+if(converted <= 0) updateResult();
 
 let orderID = "ATV-"+Date.now();
 
@@ -192,10 +218,14 @@ let url = await ref.getDownloadURL();
 
 await db.collection("transactions").add({
 orderID,
-amount: amount.value,
+type: typeValue,
+amount: amountValue,
 converted,
 senderName: senderName.value,
+senderPhone: senderPhone.value,
 accName: accName.value,
+bankName: bankName.value,
+accNumber: accNumber.value,
 receipt: url,
 status: "Pending",
 date: new Date().toLocaleString()
@@ -242,6 +272,8 @@ let statusClass="pending";
 if(tx.status==="Paid") statusClass="paid";
 if(tx.status==="Completed") statusClass="completed";
 
+let typeLabel = tx.type === "cedis" ? "Cedis -> Naira" : "Naira -> Cedis";
+
 html+=`
 <div class="tx-card">
 
@@ -250,8 +282,12 @@ ${tx.status}
 </div>
 
 <div><b>Order:</b> ${tx.orderID}</div>
+<div><b>Type:</b> ${typeLabel}</div>
 <div><b>Sent:</b> ${format(tx.amount)}</div>
 <div><b>Pay:</b> ${format(tx.converted)}</div>
+<div><b>Sender:</b> ${tx.senderName || ""} (${tx.senderPhone || ""})</div>
+<div><b>Account:</b> ${tx.accName || ""} - ${tx.bankName || ""}</div>
+<div><b>Number:</b> ${tx.accNumber || ""}</div>
 
 <a href="${tx.receipt}" target="_blank" class="link">
 View Receipt
@@ -276,20 +312,22 @@ let val = searchInput.value.toLowerCase();
 
 let filtered = allTransactions.filter(tx =>
 (tx.orderID && tx.orderID.toLowerCase().includes(val)) ||
-(tx.accName && tx.accName.toLowerCase().includes(val))
+(tx.accName && tx.accName.toLowerCase().includes(val)) ||
+(tx.senderName && tx.senderName.toLowerCase().includes(val)) ||
+(tx.senderPhone && tx.senderPhone.toLowerCase().includes(val))
 );
 
 displayTransactions(filtered);
 }
 
 // STATUS
-function markPaid(id){
-db.collection("transactions").doc(id).update({status:"Paid"});
+async function markPaid(id){
+await db.collection("transactions").doc(id).update({status:"Paid"});
 openDashboard();
 }
 
-function markCompleted(id){
-db.collection("transactions").doc(id).update({status:"Completed"});
+async function markCompleted(id){
+await db.collection("transactions").doc(id).update({status:"Completed"});
 openDashboard();
 }
 
