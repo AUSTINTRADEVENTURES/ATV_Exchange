@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange</title>
+<title>ATV Exchange</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link rel="manifest" href="./manifest.json">
@@ -19,6 +19,13 @@ body{margin:0;font-family:Arial;background:#0f2027;color:white;}
 input,select{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:none;}
 button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;background:#25D366;color:white;}
 .hidden{display:none;}
+
+.tx-card{background:#1c2b36;padding:15px;border-radius:12px;margin-top:12px;}
+.status{padding:5px 10px;border-radius:20px;font-size:12px;}
+.pending{background:#ffc107;color:black;}
+.paid{background:#2196f3;}
+.completed{background:#4caf50;}
+.link{color:#00ffcc;text-decoration:none;}
 </style>
 </head>
 
@@ -38,7 +45,6 @@ button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;ba
 <!-- MAIN -->
 <div id="appBox" class="hidden">
 
-<!-- DASHBOARD BUTTON -->
 <button onclick="openDashboard()">📊 Dashboard</button>
 
 <!-- CONVERTER -->
@@ -80,7 +86,11 @@ button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;ba
 
 <!-- DASHBOARD -->
 <div class="card hidden" id="dashboard">
+
+<input id="searchInput" placeholder="Search..." oninput="searchTx()">
+
 <div id="transactions"></div>
+
 </div>
 
 </div>
@@ -89,7 +99,7 @@ button{width:100%;padding:12px;margin-top:10px;border:none;border-radius:10px;ba
 
 <script>
 
-// FIREBASE
+// FIREBASE CONFIG
 const firebaseConfig = {
 apiKey: "AIzaSyBQiE6s-oBHwmFcBe_7ghcYb6hEZytTFXw",
 authDomain: "atvexchange.firebaseapp.com",
@@ -103,9 +113,7 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 const storage = firebase.storage();
 
-// LOGIN FIX (NO FLICKER)
-document.getElementById("appBox").style.display = "none";
-
+// LOGIN FIX
 auth.onAuthStateChanged(user=>{
 if(user){
 loginBox.style.display="none";
@@ -113,19 +121,26 @@ appBox.style.display="block";
 }
 });
 
-// LOGIN
 function login(){
 auth.signInWithEmailAndPassword(email.value,password.value)
 .catch(()=>alert("Login failed"));
 }
 
+// FORMAT (COMMAS + DECIMALS)
+function format(num){
+return Number(num).toLocaleString(undefined,{
+minimumFractionDigits:2,
+maximumFractionDigits:2
+});
+}
+
 // RATES
-const rateCedis=116.27907;
-const rateNaira=120.48193;
+const rateCedis = 116.27907;
+const rateNaira = 120.48193;
 
-let converted=0;
+let converted = 0;
 
-// FIXED CONVERSION
+// CONVERSION
 function updateResult(){
 
 let amount = document.getElementById("amount").value;
@@ -135,10 +150,10 @@ if(!amount) return;
 
 if(type==="cedis"){
 converted = amount * rateCedis;
-result.innerText = amount+" GHS = "+converted.toFixed(2)+" NGN";
+result.innerText = format(amount)+" GHS = "+format(converted)+" NGN";
 }else{
 converted = amount / rateNaira;
-result.innerText = amount+" NGN = "+converted.toFixed(2)+" GHS";
+result.innerText = format(amount)+" NGN = "+format(converted)+" GHS";
 }
 }
 
@@ -151,21 +166,22 @@ paymentPage.classList.remove("hidden");
 
 if(type==="cedis"){
 paymentBox.innerHTML = `
-Send GHS to:<br>
+Send GHS (MoMo):<br>
 0555736233<br>
 Name: God of JECOB
 `;
 }else{
 paymentBox.innerHTML = `
-Send NGN to your bank account (manual processing)
+Send NGN (Bank Transfer)<br>
+You will receive GHS via MoMo
 `;
 }
 }
 
-// SUBMIT ORDER
+// ORDER
 async function submitOrder(){
 
-let file = document.getElementById("receipt").files[0];
+let file = receipt.files[0];
 if(!file) return alert("Upload receipt");
 
 let orderID = "ATV-"+Date.now();
@@ -176,34 +192,105 @@ let url = await ref.getDownloadURL();
 
 await db.collection("transactions").add({
 orderID,
-amount:amount.value,
+amount: amount.value,
 converted,
-status:"Pending",
-receipt:url,
-date:new Date().toLocaleString()
+senderName: senderName.value,
+accName: accName.value,
+receipt: url,
+status: "Pending",
+date: new Date().toLocaleString()
 });
 
 window.open("https://wa.me/233542632169?text=Order%20ID:%20"+orderID);
 }
 
 // DASHBOARD
+let allTransactions=[];
+
 function openDashboard(){
 
 dashboard.classList.remove("hidden");
 
 db.collection("transactions").get().then(snap=>{
-let html="";
+
+allTransactions=[];
+
 snap.forEach(doc=>{
-let tx=doc.data();
+let tx = doc.data();
+tx.id = doc.id;
+allTransactions.push(tx);
+});
+
+displayTransactions(allTransactions);
+
+});
+}
+
+// DISPLAY
+function displayTransactions(data){
+
+if(data.length===0){
+transactions.innerHTML="No data";
+return;
+}
+
+let html="";
+
+data.forEach(tx=>{
+
+let statusClass="pending";
+if(tx.status==="Paid") statusClass="paid";
+if(tx.status==="Completed") statusClass="completed";
+
 html+=`
-<div style="margin:10px;padding:10px;background:#2a3c48;border-radius:10px;">
-${tx.orderID}<br>
-${tx.amount}<br>
+<div class="tx-card">
+
+<div class="status ${statusClass}">
 ${tx.status}
-</div>`;
+</div>
+
+<div><b>Order:</b> ${tx.orderID}</div>
+<div><b>Sent:</b> ${format(tx.amount)}</div>
+<div><b>Pay:</b> ${format(tx.converted)}</div>
+
+<a href="${tx.receipt}" target="_blank" class="link">
+View Receipt
+</a>
+
+<button onclick="markPaid('${tx.id}')">Paid</button>
+<button onclick="markCompleted('${tx.id}')">Complete</button>
+
+<div>${tx.date}</div>
+
+</div>
+`;
 });
+
 transactions.innerHTML=html;
-});
+}
+
+// SEARCH
+function searchTx(){
+
+let val = searchInput.value.toLowerCase();
+
+let filtered = allTransactions.filter(tx =>
+(tx.orderID && tx.orderID.toLowerCase().includes(val)) ||
+(tx.accName && tx.accName.toLowerCase().includes(val))
+);
+
+displayTransactions(filtered);
+}
+
+// STATUS
+function markPaid(id){
+db.collection("transactions").doc(id).update({status:"Paid"});
+openDashboard();
+}
+
+function markCompleted(id){
+db.collection("transactions").doc(id).update({status:"Completed"});
+openDashboard();
 }
 
 // SW
