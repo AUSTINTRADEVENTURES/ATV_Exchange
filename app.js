@@ -105,6 +105,8 @@ let converted = 0;
 let paymentReference = "";
 let allTransactions = [];
 let allCustomers = [];
+let myOrdersData = [];
+let allKycProfiles = [];
 let currentUser = null;
 let currentProfile = null;
 let isAdmin = false;
@@ -129,9 +131,11 @@ showAdminButtons();
 
 if(page === "profile.html") loadProfilePage();
 if(page === "payment.html") loadPaymentPage();
+if(page === "orders.html") loadMyOrdersPage();
 if(page === "dashboard.html") requireAdmin(loadDashboard);
 if(page === "profit.html") requireAdmin(loadProfitDashboard);
 if(page === "customers.html") requireAdmin(loadCustomersPage);
+if(page === "kyc-admin.html") requireAdmin(loadKycReviewPage);
 });
 
 function getPageName(){
@@ -147,6 +151,7 @@ function showAdminButtons(){
 if(document.getElementById("dashboardBtn")) dashboardBtn.classList.toggle("hidden", !isAdmin);
 if(document.getElementById("profitBtn")) profitBtn.classList.toggle("hidden", !isAdmin);
 if(document.getElementById("customersBtn")) customersBtn.classList.toggle("hidden", !isAdmin);
+if(document.getElementById("kycBtn")) kycBtn.classList.toggle("hidden", !isAdmin);
 }
 
 async function getCustomerProfile(){
@@ -167,6 +172,10 @@ profile.country &&
 profile.address &&
 profile.idType &&
 profile.idNumber;
+}
+
+function isKycApproved(profile){
+return profile && profile.kycStatus === "Approved";
 }
 
 function loadCountryOptions(){
@@ -302,6 +311,16 @@ if(!idNumber.value) return alert("Enter ID number");
 let existingProfile = await getCustomerProfile();
 let kycDocumentUrl = existingProfile ? existingProfile.kycDocumentUrl || "" : "";
 let file = kycDocument.files[0];
+let profileChanged = existingProfile && (
+existingProfile.name !== profileName.value ||
+existingProfile.phone !== profilePhone.value ||
+existingProfile.email !== profileEmail.value ||
+existingProfile.country !== profileCountry.value ||
+existingProfile.address !== profileAddress.value ||
+existingProfile.idType !== idType.value ||
+existingProfile.idNumber !== idNumber.value ||
+file
+);
 
 if(!kycDocumentUrl && !file) return alert("Upload your KYC document");
 
@@ -312,6 +331,7 @@ kycDocumentUrl = await ref.getDownloadURL();
 }
 
 await db.collection("users").doc(currentUser.uid).set({
+userId: currentUser.uid,
 name: profileName.value,
 phone: profilePhone.value,
 email: profileEmail.value,
@@ -320,7 +340,7 @@ address: profileAddress.value,
 idType: idType.value,
 idNumber: idNumber.value,
 kycDocumentUrl,
-kycStatus: "Submitted",
+kycStatus: existingProfile && existingProfile.kycStatus === "Approved" && !profileChanged ? "Approved" : "Submitted",
 updatedAt: new Date().toLocaleString()
 },{merge:true});
 
@@ -341,6 +361,12 @@ currentProfile = await getCustomerProfile();
 
 if(!isProfileComplete(currentProfile)){
 alert("Complete your Profile/KYC before payment");
+window.location.href = "profile.html";
+return;
+}
+
+if(!isKycApproved(currentProfile)){
+alert("Your KYC must be approved before payment");
 window.location.href = "profile.html";
 return;
 }
@@ -391,6 +417,7 @@ let currency = getPaymentCurrency();
 
 if(!paymentAmount) return alert("Start with the exchange page first");
 if(!isProfileComplete(currentProfile)) return alert("Complete your Profile/KYC first");
+if(!isKycApproved(currentProfile)) return alert("Your KYC must be approved before payment");
 
 paymentReference = "ATV-PAY-"+Date.now();
 
@@ -475,6 +502,7 @@ let provider = paymentProvider.value;
 currentProfile = currentProfile || await getCustomerProfile();
 
 if(!isProfileComplete(currentProfile)) return alert("Complete your Profile/KYC first");
+if(!isKycApproved(currentProfile)) return alert("Your KYC must be approved before payment");
 if(!accName.value) return alert("Enter account name");
 if(!bankName.value) return alert("Enter bank name");
 if(!accNumber.value) return alert("Enter account number");
@@ -579,6 +607,69 @@ let filtered = allTransactions.filter(tx =>
 displayTransactions(filtered);
 }
 
+function loadMyOrdersPage(){
+db.collection("transactions")
+.where("customerId","==",currentUser.uid)
+.get()
+.then(snap=>{
+myOrdersData=[];
+
+snap.forEach(doc=>{
+let tx = doc.data();
+tx.id = doc.id;
+myOrdersData.push(tx);
+});
+
+displayMyOrders(myOrdersData);
+});
+}
+
+function displayMyOrders(data){
+if(data.length===0){
+myOrders.innerHTML="No orders yet";
+return;
+}
+
+let html="";
+
+data.forEach(tx=>{
+let statusClass="pending";
+if(tx.status==="Paid") statusClass="paid";
+if(tx.status==="Completed") statusClass="completed";
+
+let typeLabel = tx.type === "cedis" ? "Cedis -> Naira" : "Naira -> Cedis";
+
+html+=`
+<div class="tx-card">
+<div class="status ${statusClass}">${tx.status}</div>
+<div><b>Order:</b> ${tx.orderID}</div>
+<div><b>Type:</b> ${typeLabel}</div>
+<div><b>Sent:</b> ${format(tx.amount)}</div>
+<div><b>Receive:</b> ${format(tx.converted)}</div>
+<div><b>Payment:</b> ${tx.paymentProvider || "online"} ${tx.paymentReference || ""}</div>
+<div><b>Receiving Account:</b> ${tx.accName || ""} - ${tx.bankName || ""}</div>
+<div><b>Account Number:</b> ${tx.accNumber || ""}</div>
+<div><b>Date:</b> ${tx.date || ""}</div>
+<a class="link" target="_blank" href="https://wa.me/233542632169?text=Support%20for%20Order%20ID:%20${tx.orderID}">Contact Support</a>
+</div>
+`;
+});
+
+myOrders.innerHTML=html;
+}
+
+function searchMyOrders(){
+let val = myOrderSearchInput.value.toLowerCase();
+
+let filtered = myOrdersData.filter(tx =>
+(tx.orderID && tx.orderID.toLowerCase().includes(val)) ||
+(tx.status && tx.status.toLowerCase().includes(val)) ||
+(tx.paymentReference && tx.paymentReference.toLowerCase().includes(val))
+);
+
+displayMyOrders(filtered);
+}
+
 async function markPaid(id){
 if(!isAdmin) return alert("Admin only");
 await db.collection("transactions").doc(id).update({status:"Paid"});
@@ -677,6 +768,94 @@ let filtered = allCustomers.filter(customer =>
 );
 
 displayCustomers(filtered);
+}
+
+function loadKycReviewPage(){
+db.collection("users").get().then(snap=>{
+allKycProfiles=[];
+
+snap.forEach(doc=>{
+let profile = doc.data();
+profile.id = doc.id;
+allKycProfiles.push(profile);
+});
+
+displayKycProfiles(allKycProfiles);
+});
+}
+
+function displayKycProfiles(data){
+if(data.length===0){
+kycProfiles.innerHTML="No KYC profiles yet";
+return;
+}
+
+let html="";
+
+data.forEach(profile=>{
+let status = profile.kycStatus || "Not submitted";
+let statusClass = "pending";
+if(status==="Approved") statusClass = "completed";
+if(status==="Rejected") statusClass = "paid";
+let documentLink = profile.kycDocumentUrl ? `<a href="${profile.kycDocumentUrl}" target="_blank" class="link">View KYC Document</a>` : "";
+
+html+=`
+<div class="tx-card">
+<div class="status ${statusClass}">${status}</div>
+<div><b>Name:</b> ${profile.name || ""}</div>
+<div><b>Phone:</b> ${profile.phone || ""}</div>
+<div><b>Email:</b> ${profile.email || ""}</div>
+<div><b>Country:</b> ${profile.country || ""}</div>
+<div><b>Address:</b> ${profile.address || ""}</div>
+<div><b>ID Type:</b> ${profile.idType || ""}</div>
+<div><b>ID Number:</b> ${profile.idNumber || ""}</div>
+<div><b>Updated:</b> ${profile.updatedAt || ""}</div>
+${documentLink}
+<button onclick="approveKyc('${profile.id}')">Approve KYC</button>
+<button onclick="rejectKyc('${profile.id}')">Reject KYC</button>
+</div>
+`;
+});
+
+kycProfiles.innerHTML=html;
+}
+
+function searchKycProfiles(){
+let val = kycSearchInput.value.toLowerCase();
+
+let filtered = allKycProfiles.filter(profile =>
+(profile.name && profile.name.toLowerCase().includes(val)) ||
+(profile.phone && profile.phone.toLowerCase().includes(val)) ||
+(profile.email && profile.email.toLowerCase().includes(val)) ||
+(profile.country && profile.country.toLowerCase().includes(val)) ||
+(profile.kycStatus && profile.kycStatus.toLowerCase().includes(val))
+);
+
+displayKycProfiles(filtered);
+}
+
+async function approveKyc(id){
+if(!isAdmin) return alert("Admin only");
+
+await db.collection("users").doc(id).update({
+kycStatus: "Approved",
+kycReviewedBy: currentUser.email,
+kycReviewedAt: new Date().toLocaleString()
+});
+
+loadKycReviewPage();
+}
+
+async function rejectKyc(id){
+if(!isAdmin) return alert("Admin only");
+
+await db.collection("users").doc(id).update({
+kycStatus: "Rejected",
+kycReviewedBy: currentUser.email,
+kycReviewedAt: new Date().toLocaleString()
+});
+
+loadKycReviewPage();
 }
 
 if ("serviceWorker" in navigator) {

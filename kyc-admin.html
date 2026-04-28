@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange - Profit</title>
+<title>Swift Exchange - KYC Review</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
@@ -10,18 +10,19 @@
 
 <body>
 <div class="app">
-<h2>Profit Dashboard</h2>
+<h2>KYC Review</h2>
 
 <div class="nav">
 <button onclick="goToPage('exchange.html')">Exchange</button>
 <button onclick="goToPage('dashboard.html')">Dashboard</button>
+<button onclick="goToPage('profit.html')">Profit</button>
 <button onclick="goToPage('customers.html')">Customers</button>
-<button onclick="goToPage('kyc-admin.html')">KYC Review</button>
 <button onclick="logout()">Logout</button>
 </div>
 
 <div class="card">
-<div id="profitSummary"></div>
+<input id="kycSearchInput" placeholder="Search KYC..." oninput="searchKycProfiles()">
+<div id="kycProfiles"></div>
 </div>
 </div>
 
