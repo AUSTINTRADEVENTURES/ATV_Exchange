@@ -187,7 +187,7 @@ profile.idNumber;
 }
 
 function isKycApproved(profile){
-return profile && profile.kycStatus === "Approved";
+return profile.kycStatus === "approved";
 }
 
 function loadCountryOptions(){
