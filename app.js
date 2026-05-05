@@ -195,7 +195,12 @@ profile.idNumber;
 }
 
 function isKycApproved(profile){
-return profile && profile.kycStatus === "Approved";
+return isAdmin || (profile && profile.kycStatus === "Approved");
+}
+
+function getKycStatus(profile){
+if(!profile) return "Not submitted";
+return profile.kycStatus || "Not submitted";
 }
 
 function loadCountryOptions(){
@@ -429,10 +434,28 @@ profileAddress.value = profile.address || "";
 updateIdTypes(profile.idType || "");
 idNumber.value = profile.idNumber || "";
 profileStatus.innerText = "Profile loaded. KYC status: "+(profile.kycStatus || "Not submitted");
+showProfileNextStep(profile);
 }else{
 profileEmail.value = currentUser.email || "";
 updateIdTypes();
 profileStatus.innerText = "Create your profile before placing an order.";
+if(document.getElementById("profileNextStep")){
+profileNextStep.innerText = "After saving KYC, wait for admin approval before payment.";
+}
+}
+}
+
+function showProfileNextStep(profile){
+if(!document.getElementById("profileNextStep")) return;
+
+let status = getKycStatus(profile);
+
+if(status === "Approved"){
+profileNextStep.innerHTML = '<a class="button-link" href="exchange.html">Start Exchange</a>';
+}else if(status === "Rejected"){
+profileNextStep.innerHTML = 'Your KYC was rejected. Update your details/document and submit again, or contact support.';
+}else{
+profileNextStep.innerHTML = 'Your KYC is waiting for admin approval. <a class="link" href="support.html">Contact support</a>';
 }
 }
 
@@ -481,6 +504,7 @@ updatedAt: new Date().toLocaleString()
 
 currentProfile = await getCustomerProfile();
 profileStatus.innerText = "Profile/KYC saved successfully.";
+showProfileNextStep(currentProfile);
 }
 
 async function uploadToCloudinary(file){
@@ -525,7 +549,7 @@ return;
 }
 
 if(!isKycApproved(currentProfile)){
-alert("Your KYC must be approved before payment");
+alert("Your KYC status is "+getKycStatus(currentProfile)+". Admin must approve your KYC before payment.");
 window.location.href = "profile.html";
 return;
 }
@@ -575,7 +599,7 @@ let currency = getPaymentCurrency();
 
 if(!paymentAmount) return alert("Start with the exchange page first");
 if(!isProfileComplete(currentProfile)) return alert("Complete your Profile/KYC first");
-if(!isKycApproved(currentProfile)) return alert("Your KYC must be approved before payment");
+if(!isKycApproved(currentProfile)) return alert("Your KYC status is "+getKycStatus(currentProfile)+". Admin must approve your KYC before payment.");
 if(!momoPhone.value) return alert("Enter MoMo phone number");
 
 paymentConfirmed = false;
@@ -652,7 +676,7 @@ if(!draft) return alert("Start with the exchange page first");
 currentProfile = currentProfile || await getCustomerProfile();
 
 if(!isProfileComplete(currentProfile)) return alert("Complete your Profile/KYC first");
-if(!isKycApproved(currentProfile)) return alert("Your KYC must be approved before payment");
+if(!isKycApproved(currentProfile)) return alert("Your KYC status is "+getKycStatus(currentProfile)+". Admin must approve your KYC before payment.");
 if(!accName.value) return alert("Enter account name");
 if(!bankName.value) return alert("Enter bank name");
 if(!accNumber.value) return alert("Enter account number");
