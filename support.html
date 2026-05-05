@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange - Payment</title>
+<title>Swift Exchange - Support</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
@@ -10,39 +10,27 @@
 
 <body>
 <div class="app">
-<h2>Payment</h2>
+<h2>Support Chat</h2>
 
 <div class="nav">
-<button onclick="goToPage('exchange.html')">Back</button>
-<button onclick="goToPage('profile.html')">Profile/KYC</button>
+<button onclick="goToPage('exchange.html')">Home</button>
 <button onclick="goToPage('orders.html')">My Orders</button>
-<button onclick="goToPage('support.html')">Support</button>
+<button onclick="goToPage('profile.html')">Profile/KYC</button>
+<button id="supportAdminBtn" class="hidden" onclick="goToPage('support-admin.html')">Support Inbox</button>
 <button onclick="logout()">Logout</button>
 </div>
 
 <div class="card">
-<div id="orderSummary"></div>
+<h3>In-App Chat</h3>
+<div id="supportMessages" class="chat-box">Loading chat...</div>
+<textarea id="supportMessageInput" placeholder="Type your message..."></textarea>
+<button onclick="sendSupportMessage()">Send Message</button>
 </div>
 
 <div class="card">
-<h3>Customer Profile</h3>
-<div id="profileSummary">Loading profile...</div>
-</div>
-
-<div class="card">
-<h3>Payment Method</h3>
-<div>MoMo Open API</div>
-<input id="momoPhone" placeholder="MoMo phone number">
-<button id="onlinePayBtn" onclick="payOnline()">Request MoMo Payment</button>
-<div id="paymentStatus"></div>
-</div>
-
-<div class="card">
-<h3>Receiving Account</h3>
-<input id="accName" placeholder="Account Name">
-<input id="bankName" placeholder="Bank Name">
-<input id="accNumber" placeholder="Account Number">
-<button onclick="submitOrder()">Submit Order</button>
+<h3>Second Option</h3>
+<p class="help">If chat is urgent, contact support on WhatsApp.</p>
+<a class="button-link" target="_blank" href="https://wa.me/233542632169?text=Hello%20SwiftEx%20support">Open WhatsApp Support</a>
 </div>
 </div>
 

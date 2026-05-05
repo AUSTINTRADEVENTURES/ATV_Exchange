@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Swift Exchange - Support Inbox</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css">
+</head>
+
+<body>
+<div class="app">
+<h2>Support Inbox</h2>
+
+<div class="nav">
+<button onclick="goToPage('exchange.html')">Home</button>
+<button onclick="goToPage('dashboard.html')">Dashboard</button>
+<button onclick="goToPage('support.html')">My Chat</button>
+<button onclick="logout()">Logout</button>
+</div>
+
+<div class="card">
+<input id="supportSearchInput" placeholder="Search support chats..." oninput="searchSupportThreads()">
+<div id="supportThreads">Loading...</div>
+</div>
+
+<div class="card">
+<h3>Reply</h3>
+<div id="adminThreadTitle" class="help">Select a chat to reply.</div>
+<div id="adminSupportMessages" class="chat-box"></div>
+<textarea id="adminSupportMessageInput" placeholder="Type admin reply..."></textarea>
+<button onclick="sendAdminSupportMessage()">Send Reply</button>
+</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

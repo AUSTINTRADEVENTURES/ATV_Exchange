@@ -37,6 +37,12 @@
 <h3>Exchange Availability</h3>
 <label><input id="cedisEnabledInput" type="checkbox"> Enable Cedis -> Naira</label>
 <label><input id="nairaEnabledInput" type="checkbox"> Enable Naira -> Cedis</label>
+</div>
+
+<div class="card">
+<h3>MoMo Open API</h3>
+<input id="momoEndpointInput" placeholder="Backend Request To Pay endpoint">
+<div class="help">MoMo API credentials must stay on your backend. This app calls only your backend endpoint.</div>
 <button onclick="saveRates()">Save Rates</button>
 <div id="ratesStatus"></div>
 </div>

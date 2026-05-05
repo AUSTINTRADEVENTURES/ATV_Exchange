@@ -9,13 +9,23 @@
 </head>
 
 <body>
-<div class="app">
-<h2>Exchange</h2>
+<div class="app shell">
+<div class="topbar">
+<div>
+<div class="brand-mark">S</div>
+<div>
+<h1>SwiftEx</h1>
+<p>Fast. Secure. Reliable.</p>
+</div>
+</div>
+<button class="icon-btn" onclick="goToPage('support.html')">Support</button>
+</div>
 
 <div class="nav">
 <button onclick="goToPage('exchange.html')">Exchange</button>
 <button onclick="goToPage('profile.html')">Profile/KYC</button>
 <button onclick="goToPage('orders.html')">My Orders</button>
+<button onclick="goToPage('support.html')">Support</button>
 <button id="dashboardBtn" class="hidden" onclick="goToPage('dashboard.html')">Dashboard</button>
 <button id="profitBtn" class="hidden" onclick="goToPage('profit.html')">Profit</button>
 <button id="customersBtn" class="hidden" onclick="goToPage('customers.html')">Customers</button>
@@ -24,7 +34,43 @@
 <button onclick="logout()">Logout</button>
 </div>
 
-<div class="card">
+<section class="hero-panel">
+<div class="profile-row">
+<div class="avatar">SE</div>
+<div>
+<p>Hello,</p>
+<h2 id="homeCustomerName">Customer</h2>
+<span id="homeKycBadge" class="badge pending">KYC pending</span>
+</div>
+</div>
+
+<div class="balance-card">
+<p>Total Exchange Value</p>
+<h2 id="homeBalance">GHS 0.00</h2>
+<div class="balance-grid">
+<div>
+<span>GHS Balance</span>
+<b id="homeGhsBalance">GHS 0.00</b>
+</div>
+<div>
+<span>NGN Value</span>
+<b id="homeNgnBalance">NGN 0.00</b>
+</div>
+</div>
+</div>
+</section>
+
+<section class="action-grid">
+<button onclick="document.getElementById('amount').focus()">Convert</button>
+<button onclick="goToPage('payment.html')">Send</button>
+<button onclick="goToPage('orders.html')">Receive</button>
+</section>
+
+<div class="card quick-card">
+<div class="section-title">
+<h3>Quick Convert</h3>
+<span id="homeRateText">Loading rate...</span>
+</div>
 <select id="type" onchange="updateResult()">
 <option value="cedis">Cedis -> Naira</option>
 <option value="naira">Naira -> Cedis</option>
@@ -34,6 +80,26 @@
 <div id="result" class="result"></div>
 
 <button onclick="saveExchangeAndContinue()">Continue</button>
+</div>
+
+<div class="card">
+<div class="section-title">
+<h3>Recent Transactions</h3>
+<button class="text-btn" onclick="goToPage('orders.html')">View All</button>
+</div>
+<div id="homeRecentTransactions">Loading...</div>
+</div>
+
+<div class="security-banner">
+<h3>Trade with Confidence</h3>
+<p>Your transactions are protected with KYC review, admin checks, and secure payment references.</p>
+</div>
+
+<div class="bottom-nav">
+<button onclick="goToPage('exchange.html')">Home</button>
+<button onclick="goToPage('orders.html')">My Orders</button>
+<button onclick="goToPage('support.html')">Support</button>
+<button onclick="goToPage('profile.html')">Profile</button>
 </div>
 </div>
 

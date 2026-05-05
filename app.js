@@ -17,9 +17,10 @@ const adminEmails = [
 "Ezeaugustinemmaduabuchi@gmail.com"
 ];
 
-// Add public keys only. Never put secret keys inside this frontend file.
-const paymentSettings = {
-paystackPublicKey: "pk_live_62f225ccb28c9d50340b7ad717783300572ff29e"
+// MoMo Open API must be called from a backend because it needs secret credentials.
+// Put your backend endpoint here when it is ready.
+const momoSettings = {
+requestToPayEndpoint: ""
 };
 
 // Cloudinary unsigned upload settings for KYC documents.
@@ -35,7 +36,8 @@ rateNaira: 120.48193,
 costRateCedisToNaira: 116.27907,
 costRateNairaToCedis: 120.48193,
 cedisEnabled: true,
-nairaEnabled: true
+nairaEnabled: true,
+momoEndpoint: ""
 };
 
 const countryIdTypes = {
@@ -111,10 +113,13 @@ const countryIdTypes = {
 
 let converted = 0;
 let paymentReference = "";
+let paymentConfirmed = false;
 let allTransactions = [];
 let allCustomers = [];
 let myOrdersData = [];
 let allKycProfiles = [];
+let supportThreadsData = [];
+let selectedSupportThreadId = "";
 let currentUser = null;
 let currentProfile = null;
 let isAdmin = false;
@@ -138,15 +143,17 @@ return;
 
 showAdminButtons();
 
-if(page === "exchange.html") loadRateSettings();
+if(page === "exchange.html") loadHomePage();
 if(page === "profile.html") loadProfilePage();
 if(page === "payment.html") loadPaymentPage();
 if(page === "orders.html") loadMyOrdersPage();
+if(page === "support.html") loadSupportPage();
 if(page === "dashboard.html") requireAdmin(loadDashboard);
 if(page === "profit.html") requireAdmin(loadProfitDashboard);
 if(page === "customers.html") requireAdmin(loadCustomersPage);
 if(page === "kyc-admin.html") requireAdmin(loadKycReviewPage);
 if(page === "rates.html") requireAdmin(loadRatesPage);
+if(page === "support-admin.html") requireAdmin(loadSupportAdminPage);
 });
 
 function getPageName(){
@@ -164,6 +171,7 @@ if(document.getElementById("profitBtn")) profitBtn.classList.toggle("hidden", !i
 if(document.getElementById("customersBtn")) customersBtn.classList.toggle("hidden", !isAdmin);
 if(document.getElementById("kycBtn")) kycBtn.classList.toggle("hidden", !isAdmin);
 if(document.getElementById("ratesBtn")) ratesBtn.classList.toggle("hidden", !isAdmin);
+if(document.getElementById("supportAdminBtn")) supportAdminBtn.classList.toggle("hidden", !isAdmin);
 }
 
 async function getCustomerProfile(){
@@ -187,7 +195,7 @@ profile.idNumber;
 }
 
 function isKycApproved(profile){
-return profile.kycStatus === "approved";
+return profile && profile.kycStatus === "Approved";
 }
 
 function loadCountryOptions(){
@@ -281,7 +289,70 @@ rateSettings = {...defaultRateSettings, ...doc.data()};
 rateSettings = {...defaultRateSettings};
 }
 
+momoSettings.requestToPayEndpoint = rateSettings.momoEndpoint || "";
 return rateSettings;
+}
+
+async function loadHomePage(){
+await loadRateSettings();
+
+if(document.getElementById("homeRateText")){
+homeRateText.innerText = "1 GHS = "+format(rateSettings.rateCedis)+" NGN";
+}
+
+let profile = await getCustomerProfile();
+
+if(profile && document.getElementById("homeCustomerName")){
+homeCustomerName.innerText = profile.name || currentUser.email;
+homeKycBadge.innerText = profile.kycStatus === "Approved" ? "Verified Account" : "KYC "+(profile.kycStatus || "Pending");
+homeKycBadge.className = profile.kycStatus === "Approved" ? "badge completed" : "badge pending";
+}else if(document.getElementById("homeCustomerName")){
+homeCustomerName.innerText = currentUser.email || "Customer";
+homeKycBadge.innerText = "Complete Profile/KYC";
+}
+
+loadHomeRecentTransactions();
+}
+
+function loadHomeRecentTransactions(){
+if(!document.getElementById("homeRecentTransactions")) return;
+
+db.collection("transactions")
+.where("customerId","==",currentUser.uid)
+.get()
+.then(snap=>{
+let rows = [];
+
+snap.forEach(doc=>{
+let tx = doc.data();
+tx.id = doc.id;
+rows.push(tx);
+});
+
+rows = rows.slice(-3).reverse();
+
+if(rows.length===0){
+homeRecentTransactions.innerHTML = "No recent transactions yet";
+return;
+}
+
+let html = "";
+
+rows.forEach(tx=>{
+html += `
+<div class="mini-row">
+<div>
+<b>${tx.type === "cedis" ? "Converted to NGN" : "Converted to GHS"}</b>
+<span>${tx.date || ""}</span>
+</div>
+<b>${format(tx.converted)}</b>
+<span class="badge ${tx.status === "Completed" ? "completed" : "pending"}">${tx.status}</span>
+</div>
+`;
+});
+
+homeRecentTransactions.innerHTML = html;
+});
 }
 
 async function updateResult(){
@@ -505,36 +576,61 @@ let currency = getPaymentCurrency();
 if(!paymentAmount) return alert("Start with the exchange page first");
 if(!isProfileComplete(currentProfile)) return alert("Complete your Profile/KYC first");
 if(!isKycApproved(currentProfile)) return alert("Your KYC must be approved before payment");
+if(!momoPhone.value) return alert("Enter MoMo phone number");
 
-paymentReference = "ATV-PAY-"+Date.now();
-startPaystackPayment(paymentAmount, currency);
+paymentConfirmed = false;
+startMomoPayment(paymentAmount, currency);
 }
 
-function startPaystackPayment(paymentAmount, currency){
-if(!paymentSettings.paystackPublicKey){
-return alert("Add your Paystack public key in paymentSettings first");
-}
+async function startMomoPayment(paymentAmount, currency){
+paymentReference = "MOMO-"+Date.now();
 
-let popup = new Paystack();
-popup.newTransaction({
-key: paymentSettings.paystackPublicKey,
-email: currentProfile.email,
-amount: Math.round(paymentAmount * 100),
-currency,
+let payload = {
 reference: paymentReference,
-metadata: {
-senderName: currentProfile.name,
-senderPhone: currentProfile.phone,
-userId: currentUser.uid
-},
-onSuccess: function(transaction){
-paymentReference = transaction.reference;
-paymentStatus.innerText = "Payment successful: "+paymentReference;
-},
-onCancel: function(){
-paymentStatus.innerText = "Payment cancelled";
+amount: paymentAmount,
+currency,
+phone: momoPhone.value,
+customerId: currentUser.uid,
+customerName: currentProfile.name,
+customerEmail: currentProfile.email
+};
+
+if(!momoSettings.requestToPayEndpoint){
+paymentStatus.innerText = "MoMo request created locally: "+paymentReference+". Add a backend endpoint before live payments.";
+return;
 }
+
+let response = await fetch(momoSettings.requestToPayEndpoint, {
+method: "POST",
+headers: {"Content-Type":"application/json"},
+body: JSON.stringify(payload)
 });
+
+if(!response.ok){
+paymentReference = "";
+paymentStatus.innerText = "MoMo request failed. Try again or contact support.";
+return;
+}
+
+let data = {};
+
+try{
+data = await response.json();
+}catch(error){
+data = {};
+}
+
+if(data.reference){
+paymentReference = data.reference;
+}
+
+paymentConfirmed = data.paymentConfirmed === true || data.status === "SUCCESSFUL" || data.status === "SUCCESS";
+
+if(paymentConfirmed){
+paymentStatus.innerText = "MoMo payment confirmed. Reference: "+paymentReference;
+}else{
+paymentStatus.innerText = "MoMo request sent. Approve it on your phone, then wait for backend confirmation. Reference: "+paymentReference;
+}
 }
 
 function calculateProfit(typeValue, amountValue, convertedValue){
@@ -561,6 +657,7 @@ if(!accName.value) return alert("Enter account name");
 if(!bankName.value) return alert("Enter bank name");
 if(!accNumber.value) return alert("Enter account number");
 if(!paymentReference) return alert("Complete online payment first");
+if(!paymentConfirmed) return alert("MoMo backend verification is required before submitting this order");
 
 let orderID = "ATV-"+Date.now();
 rateSettings = {
@@ -587,7 +684,8 @@ kycStatus: currentProfile.kycStatus || "Submitted",
 accName: accName.value,
 bankName: bankName.value,
 accNumber: accNumber.value,
-paymentProvider: "paystack",
+paymentProvider: "momo-open-api",
+momoPhone: momoPhone.value,
 paymentReference,
 rateCedis: Number(draft.rateCedis || rateSettings.rateCedis),
 rateNaira: Number(draft.rateNaira || rateSettings.rateNaira),
@@ -735,6 +833,82 @@ let filtered = myOrdersData.filter(tx =>
 displayMyOrders(filtered);
 }
 
+function supportThreadIdForUser(userId){
+return "support-"+userId;
+}
+
+function loadSupportPage(){
+let threadId = supportThreadIdForUser(currentUser.uid);
+
+db.collection("supportThreads").doc(threadId).set({
+customerId: currentUser.uid,
+customerEmail: currentUser.email,
+updatedAt: new Date().toLocaleString(),
+status: "Open"
+},{merge:true});
+
+db.collection("supportThreads").doc(threadId).collection("messages")
+.orderBy("createdAt","asc")
+.onSnapshot(snap=>{
+let messages = [];
+
+snap.forEach(doc=>{
+messages.push(doc.data());
+});
+
+displaySupportMessages(messages, supportMessages);
+});
+}
+
+function displaySupportMessages(messages, target){
+if(messages.length===0){
+target.innerHTML = "No messages yet";
+return;
+}
+
+let html = "";
+
+messages.forEach(message=>{
+let own = message.senderId === currentUser.uid;
+html += `
+<div class="chat-message ${own ? "own" : ""}">
+<b>${message.senderName || message.senderEmail || "Support"}</b>
+<p>${message.text}</p>
+<span>${message.createdLabel || ""}</span>
+</div>
+`;
+});
+
+target.innerHTML = html;
+target.scrollTop = target.scrollHeight;
+}
+
+async function sendSupportMessage(){
+let text = supportMessageInput.value.trim();
+if(!text) return alert("Type a message");
+
+let threadId = supportThreadIdForUser(currentUser.uid);
+
+await db.collection("supportThreads").doc(threadId).set({
+customerId: currentUser.uid,
+customerEmail: currentUser.email,
+updatedAt: new Date().toLocaleString(),
+status: "Open"
+},{merge:true});
+
+await db.collection("supportThreads").doc(threadId).collection("messages").add({
+text,
+senderId: currentUser.uid,
+senderEmail: currentUser.email,
+senderName: currentProfile ? currentProfile.name : currentUser.email,
+senderRole: isAdmin ? "admin" : "customer",
+createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+createdLabel: new Date().toLocaleString()
+});
+
+supportMessageInput.value = "";
+}
+
 async function markPaid(id){
 if(!isAdmin) return alert("Admin only");
 await db.collection("transactions").doc(id).update({status:"Paid"});
@@ -835,6 +1009,95 @@ let filtered = allCustomers.filter(customer =>
 displayCustomers(filtered);
 }
 
+function loadSupportAdminPage(){
+db.collection("supportThreads").get().then(snap=>{
+supportThreadsData = [];
+
+snap.forEach(doc=>{
+let thread = doc.data();
+thread.id = doc.id;
+supportThreadsData.push(thread);
+});
+
+displaySupportThreads(supportThreadsData);
+});
+}
+
+function displaySupportThreads(data){
+if(data.length===0){
+supportThreads.innerHTML = "No support chats yet";
+return;
+}
+
+let html = "";
+
+data.forEach(thread=>{
+html += `
+<div class="tx-card">
+<div><b>Customer:</b> ${thread.customerEmail || ""}</div>
+<div><b>Status:</b> ${thread.status || "Open"}</div>
+<div><b>Updated:</b> ${thread.updatedAt || ""}</div>
+<button onclick="openSupportThread('${thread.id}')">Open Chat</button>
+</div>
+`;
+});
+
+supportThreads.innerHTML = html;
+}
+
+function searchSupportThreads(){
+let val = supportSearchInput.value.toLowerCase();
+
+let filtered = supportThreadsData.filter(thread =>
+(thread.customerEmail && thread.customerEmail.toLowerCase().includes(val)) ||
+(thread.status && thread.status.toLowerCase().includes(val))
+);
+
+displaySupportThreads(filtered);
+}
+
+function openSupportThread(threadId){
+selectedSupportThreadId = threadId;
+adminThreadTitle.innerText = "Replying to "+threadId;
+
+db.collection("supportThreads").doc(threadId).collection("messages")
+.orderBy("createdAt","asc")
+.onSnapshot(snap=>{
+let messages = [];
+
+snap.forEach(doc=>{
+messages.push(doc.data());
+});
+
+displaySupportMessages(messages, adminSupportMessages);
+});
+}
+
+async function sendAdminSupportMessage(){
+if(!isAdmin) return alert("Admin only");
+if(!selectedSupportThreadId) return alert("Open a chat first");
+
+let text = adminSupportMessageInput.value.trim();
+if(!text) return alert("Type a reply");
+
+await db.collection("supportThreads").doc(selectedSupportThreadId).set({
+updatedAt: new Date().toLocaleString(),
+status: "Open"
+},{merge:true});
+
+await db.collection("supportThreads").doc(selectedSupportThreadId).collection("messages").add({
+text,
+senderId: currentUser.uid,
+senderEmail: currentUser.email,
+senderName: "SwiftEx Support",
+senderRole: "admin",
+createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+createdLabel: new Date().toLocaleString()
+});
+
+adminSupportMessageInput.value = "";
+}
+
 function loadKycReviewPage(){
 db.collection("users").get().then(snap=>{
 allKycProfiles=[];
@@ -932,6 +1195,7 @@ costRateCedisInput.value = rateSettings.costRateCedisToNaira;
 costRateNairaInput.value = rateSettings.costRateNairaToCedis;
 cedisEnabledInput.checked = Boolean(rateSettings.cedisEnabled);
 nairaEnabledInput.checked = Boolean(rateSettings.nairaEnabled);
+momoEndpointInput.value = rateSettings.momoEndpoint || "";
 ratesStatus.innerText = "Rates loaded.";
 }
 
@@ -945,6 +1209,7 @@ costRateCedisToNaira: Number(costRateCedisInput.value),
 costRateNairaToCedis: Number(costRateNairaInput.value),
 cedisEnabled: cedisEnabledInput.checked,
 nairaEnabled: nairaEnabledInput.checked,
+momoEndpoint: momoEndpointInput.value,
 updatedBy: currentUser.email,
 updatedAt: new Date().toLocaleString()
 };
