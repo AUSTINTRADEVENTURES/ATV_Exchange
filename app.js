@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260521moneyformat1";
+const appAssetVersion = "20260521nairafix1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -945,7 +945,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521moneyformat1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521nairafix1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1031,7 +1031,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521moneyformat1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521nairafix1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -2587,7 +2587,7 @@ liveBalances = {ghs:ghsBalance, ngn:ngnBalance};
 updateVipPrivilegeFromBalance(liveBalances).catch(error=>appLog("VIP update skipped", error.message));
 updateTierBadges(currentProfile, liveBalances);
 let ghsText = "GHS "+format(ghsBalance);
-let ngnText = "â‚¦"+format(ngnBalance);
+let ngnText = "\u20A6"+format(ngnBalance);
 
 if(document.getElementById("homeGhsBalance")){
 homeGhsBalance.dataset.value = ghsText;
@@ -2613,7 +2613,7 @@ if(!document.getElementById("homeBalance")) return;
 let mainText = "";
 
 if(activeBalanceCurrency === "NGN"){
-mainText = "â‚¦"+format(liveBalances.ngn);
+mainText = "\u20A6"+format(liveBalances.ngn);
 if(document.getElementById("balanceCardLabel")) balanceCardLabel.innerText = "NGN Available Balance";
 if(document.getElementById("ghsBalanceBox")) ghsBalanceBox.classList.add("hidden");
 if(document.getElementById("ngnBalanceBox")) ngnBalanceBox.classList.remove("hidden");
@@ -7779,7 +7779,7 @@ forRole: "customer",
 role: "customer",
 type: "rate-update",
 title: "Rate Update",
-message: "Rates updated: 1 GHS = â‚¦"+formatRate(newRates.rateCedis)+" and â‚¦"+formatRate(newRates.rateNaira)+" = 1 GHS.",
+message: "Rates updated: 1 GHS = \u20A6"+formatRate(newRates.rateCedis)+" and \u20A6"+formatRate(newRates.rateNaira)+" = 1 GHS.",
 link: "exchange.html",
 actionLink: "exchange.html",
 priority: "medium",
@@ -7790,7 +7790,7 @@ pushSent: false
 });
 await broadcastRateUpdate(
 "New exchange rates available",
-"Rates updated: 1 GHS = â‚¦"+formatRate(newRates.rateCedis),
+"Rates updated: 1 GHS = \u20A6"+formatRate(newRates.rateCedis),
 "exchange.html",
 {type:"rate-update", rateCedis:newRates.rateCedis, rateNaira:newRates.rateNaira}
 );
@@ -7936,9 +7936,11 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260521moneyformat1")
+navigator.serviceWorker.register("./sw.js?v=20260521nairafix1")
 .then(registration => registration.update())
 .catch(() => {});
 }
+
+
 
 
