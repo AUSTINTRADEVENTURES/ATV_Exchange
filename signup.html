@@ -1,0 +1,49 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Create Account</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+
+<body class="login-body">
+<div class="login-shell">
+<div class="login-card" id="signupCard">
+<div class="login-brand">
+<div class="brand-mark">A</div>
+<div>
+<h1>ATV Exchange</h1>
+<p>Create your Tier 1 account.</p>
+</div>
+</div>
+
+<div class="auth-grid auth-grid-login">
+<div>
+<h2>Create Account</h2>
+<input id="regFirstName" placeholder="First Name">
+<input id="regMiddleName" placeholder="Middle Name">
+<input id="regLastName" placeholder="Last/Surname">
+<input id="regEmail" type="email" placeholder="Email Address">
+<input id="regPhone" placeholder="Phone Number">
+<div class="password-field"><input id="regPassword" type="password" placeholder="Password"><button type="button" onclick="togglePasswordVisibility('regPassword', this)" aria-label="Show password">&#128065;</button></div>
+<div class="password-field"><input id="regVerifyPassword" type="password" placeholder="Verify Password"><button type="button" onclick="togglePasswordVisibility('regVerifyPassword', this)" aria-label="Show password">&#128065;</button></div>
+<button id="registerBtn" onclick="register()">Create Tier 1 Account</button>
+<a class="support-auth-link" href="support.html">Need help creating account? Contact Support</a>
+<a class="button-link secondary-link" href="index.html">Back to Login</a>
+<div id="loginStatus" class="help"></div>
+</div>
+</div>
+</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+

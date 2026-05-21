@@ -1,36 +1,63 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange - Dashboard</title>
+<title>ATV Exchange - Admin Dashboard</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
 </head>
 
 <body>
-<div class="app">
-<h2>Admin Dashboard</h2>
-
-<div class="nav">
-<button onclick="goToPage('exchange.html')">Exchange</button>
-<button onclick="goToPage('profit.html')">Profit</button>
-<button onclick="goToPage('customers.html')">Customers</button>
-<button onclick="goToPage('kyc-admin.html')">KYC Review</button>
-<button onclick="goToPage('rates.html')">Rates</button>
-<button onclick="logout()">Logout</button>
+<div class="app admin-shell">
+<div class="admin-topbar">
+<div>
+<span class="admin-kicker">ATV Exchange Operations</span>
+<h1>Admin Dashboard</h1>
+<p>Summary first. Open each section on its own page.</p>
+</div>
+<button class="admin-logout-btn" onclick="logout()">Logout</button>
 </div>
 
-<div class="card">
-<input id="searchInput" placeholder="Search..." oninput="searchTx()">
-<div id="transactions"></div>
+<section class="admin-alert-grid" id="adminPendingCounters">
+<button onclick="goToPage('deposit-orders.html')"><span>Pending Deposits</span><b id="pendingDepositCount">0</b></button>
+<button onclick="goToPage('convert-orders.html')"><span>Pending Converts</span><b id="pendingConvertCount">0</b></button>
+<button onclick="goToPage('swap-orders.html')"><span>Pending Swaps</span><b id="pendingSwapCount">0</b></button>
+<button onclick="goToPage('withdrawal-orders.html')"><span>Pending Withdrawals</span><b id="pendingWithdrawCount">0</b></button>
+<button onclick="goToPage('kyc-admin.html')"><span>Pending KYC</span><b id="pendingKycCount">0</b></button>
+<button onclick="goToPage('support-admin.html')"><span>Open Support</span><b id="pendingSupportCount">0</b></button>
+</section>
+
+<section class="admin-queue-card">
+<div class="admin-card-head">
+<div>
+<span class="admin-kicker">Quick Navigation</span>
+<h2>Admin Sections</h2>
 </div>
+</div>
+<div class="admin-quick-grid">
+<button onclick="goToPage('deposit-orders.html')"><b>Deposit Orders</b><span>Review customer deposits</span></button>
+<button onclick="goToPage('convert-orders.html')"><b>Convert Orders</b><span>Process exchange requests</span></button>
+<button onclick="goToPage('swap-orders.html')"><b>Swap Orders</b><span>Monitor wallet swaps</span></button>
+<button onclick="goToPage('withdrawal-orders.html')"><b>Withdrawal Orders</b><span>Approve cash outs</span></button>
+<button onclick="goToPage('kyc-admin.html')"><b>KYC Approvals</b><span>ID verification queue</span></button>
+<button onclick="goToPage('utility-bill-approvals.html')"><b>Utility Bills</b><span>Proof of address review</span></button>
+<button onclick="goToPage('support-admin.html')"><b>Support Tickets</b><span>Customer messages</span></button>
+<button onclick="goToPage('customers.html')"><b>User Management</b><span>Customers and balances</span></button>
+<button onclick="goToPage('admin-notifications.html')"><b>Notifications</b><span>Admin alerts</span></button>
+<button onclick="goToPage('rates.html')"><b>Rate Management</b><span>Exchange rates</span></button>
+<button onclick="goToPage('transaction-history.html')"><b>Transaction History</b><span>Closed records</span></button>
+<button onclick="goToPage('announcements.html')"><b>Announcements</b><span>Send customer updates</span></button>
+</div>
+</section>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="./app.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
 </body>
 </html>
+
+

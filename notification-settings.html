@@ -1,0 +1,43 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Notification Settings</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+<body>
+<div class="app page-shell">
+<div class="page-topbar">
+<button class="back-btn" onclick="goToPage('settings.html')">Back</button>
+<div>
+<span class="admin-kicker">Alerts</span>
+<h2>Notification Settings</h2>
+</div>
+</div>
+
+<section class="card notification-settings-card">
+<p class="help">Manage push alerts for this device. Your phone controls final sound behaviour, ATV Exchange controls which alerts are sent.</p>
+<div class="settings-grid">
+<label class="toggle-row"><span>Push notifications</span><input id="pushEnabledToggle" type="checkbox" onchange="togglePushFromSettings()"></label>
+<label class="toggle-row"><span>Sound alerts</span><input id="notificationSoundToggle" type="checkbox"></label>
+<label class="toggle-row"><span>Vibration</span><input id="notificationVibrationToggle" type="checkbox"></label>
+<label class="toggle-row"><span>Announcements</span><input id="announcementAlertsToggle" type="checkbox"></label>
+<label class="toggle-row"><span>Rate updates</span><input id="rateAlertsToggle" type="checkbox"></label>
+</div>
+<button onclick="saveNotificationSettings()">Save Settings</button>
+<div id="pushStatus" class="help"></div>
+</section>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+

@@ -1,0 +1,26 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Transaction History</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+<body data-show-closed="true">
+<div class="app admin-shell">
+<div class="admin-topbar"><div><span class="admin-kicker">Admin Records</span><h1 id="adminOrderPageTitle">Transaction History</h1><p id="adminOrderPageNote">Loading...</p></div><button class="admin-logout-btn" onclick="goToPage('dashboard.html')">Dashboard</button></div>
+<section class="admin-queue-card full-list-card">
+<div class="admin-card-head"><div><span class="admin-kicker">Closed Records</span><h2><span id="adminOrderPageCount">0</span> records</h2></div><input id="adminOrderSearch" placeholder="Search history..." oninput="rerenderAdminOrderList()"></div>
+<div id="adminOrderList" class="admin-order-list compact-admin-list">Loading transaction history...</div>
+</section>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+

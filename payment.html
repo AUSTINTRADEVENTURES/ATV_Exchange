@@ -1,55 +1,117 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange - Payment</title>
+<title>ATV Exchange - Payment Flow</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
 </head>
 
 <body>
-<div class="app">
-<h2>Payment</h2>
-
-<div class="nav">
-<button onclick="goToPage('exchange.html')">Back</button>
-<button onclick="goToPage('profile.html')">Profile/KYC</button>
+<div class="app payment-flow-shell">
+<div class="payment-flow-top">
+<div>
+<span class="admin-kicker">Secure Exchange</span>
+<h1>Payment & Settlement</h1>
+<p>Complete each step carefully. Your order is saved as soon as payment method is selected.</p>
+</div>
 <button onclick="goToPage('orders.html')">My Orders</button>
-<button onclick="goToPage('support.html')">Support</button>
-<button onclick="logout()">Logout</button>
 </div>
 
-<div class="card">
-<div id="orderSummary"></div>
+<div class="step-meter">
+<b id="paymentStepCount">Step 3 of 6</b>
+<span id="paymentStepTitle">Payment Method</span>
+</div>
+<div class="journey-tracker compact">
+<span id="flowP1" class="active">Currency</span>
+<span id="flowP2" class="active">Amount</span>
+<span id="flowP3" class="active">Method</span>
+<span id="flowP4">Payment</span>
+<span id="flowP5">Settlement</span>
+<span id="flowP6">Admin</span>
+<span id="flowP7">Done</span>
 </div>
 
-<div class="card">
-<h3>Customer Profile</h3>
-<div id="profileSummary">Loading profile...</div>
+<section id="paymentStep3" class="flow-panel">
+<span class="flow-step-label">Step 3 - Select Payment Method</span>
+<h2>Choose how you will pay</h2>
+<div id="orderSummary" class="flow-summary">Loading order...</div>
+<div class="method-grid">
+<button id="methodMtnBtn" class="method-card active" onclick="selectConvertPaymentMethod('manual-mtn')">
+<b>MTN Mobile Money</b>
+<span>Active for GHS to NGN</span>
+</button>
+<button class="method-card disabled" disabled>
+<b>Bank Transfer</b>
+<span>Coming Soon</span>
+</button>
 </div>
+<button id="createOrderBtn" onclick="createConvertOrder()">Continue</button>
+<div id="paymentStatus" class="help"></div>
+</section>
 
-<div class="card">
-<h3>Payment Method</h3>
-<div>MoMo Open API</div>
-<input id="momoPhone" placeholder="MoMo phone number">
-<button id="onlinePayBtn" onclick="payOnline()">Request MoMo Payment</button>
-<div id="paymentStatus"></div>
+<section id="paymentStep4" class="flow-panel hidden">
+<span class="flow-step-label">Step 4 - Payment Instruction</span>
+<h2>Send MTN MoMo payment</h2>
+<div id="activeOrderSummary" class="flow-summary"></div>
+<div class="payment-instructions dark">
+<b>ATV Payment Details</b>
+<h2>0555736233</h2>
+<p><b>Account Name:</b> God Of Jecob</p>
+<p>Send the exact amount shown above, then enter your sender name and transaction ID.</p>
 </div>
+<div id="paymentCountdown" class="countdown-box">15:00</div>
+<div class="warning-box">Do not mark order as paid unless payment was successfully completed. False payment claims may delay or cancel your order.</div>
+<input id="manualSenderName" placeholder="Sender Name">
+<input id="manualPaymentReference" placeholder="Transaction ID / Reference ID">
+<button id="markPaidBtn" onclick="markConvertOrderPaid()">I Have Made Payment</button>
+<button class="secondary-link" onclick="showDisputePanel()">Dispute Order</button>
+<div id="paymentInstructionStatus" class="help"></div>
+</section>
 
-<div class="card">
-<h3>Receiving Account</h3>
+<section id="paymentStep5" class="flow-panel hidden">
+<span class="flow-step-label">Step 5 - Settlement Account</span>
+<h2>Where should we send your funds?</h2>
+<div id="savedSettlementBox" class="flow-summary"></div>
 <input id="accName" placeholder="Account Name">
 <input id="bankName" placeholder="Bank Name">
 <input id="accNumber" placeholder="Account Number">
-<button onclick="submitOrder()">Submit Order</button>
-</div>
+<button onclick="submitSettlementAccount()">Submit Settlement Account</button>
+<div id="settlementStatus" class="help"></div>
+</section>
+
+<section id="paymentStep6" class="flow-panel hidden done-panel">
+<div id="doneIcon" class="done-icon">DONE</div>
+<h2 id="waitingTitle">Order Submitted</h2>
+<p id="waitingMessage">Your order is now waiting for admin approval and settlement.</p>
+<div id="finalOrderStatus" class="flow-summary"></div>
+<div id="rejectionReasonBox" class="warning-box hidden"></div>
+<div id="settlementCountdown" class="countdown-box green">05:00</div>
+<button id="supportAfterWaitBtn" class="secondary-link hidden" onclick="contactOrderSupport()">Contact Support on WhatsApp</button>
+<button onclick="goToPage('orders.html')">View My Orders</button>
+</section>
+
+<section id="disputePanel" class="flow-panel hidden">
+<span class="flow-step-label">Dispute</span>
+<h2>Payment Already Made?</h2>
+<p class="help">Use this only if you paid but the 15-minute timer expired before you marked the order as paid.</p>
+<input id="disputeSenderName" placeholder="Sender Name">
+<input id="disputeTransactionId" placeholder="Transaction ID">
+<label class="upload-label">Payment proof screenshot</label>
+<input id="disputeProof" type="file" accept="image/*">
+<textarea id="disputeExplanation" placeholder="Short explanation"></textarea>
+<button onclick="submitOrderDispute()">Submit Dispute</button>
+<div id="disputeStatus" class="help"></div>
+</section>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="./app.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
 </body>
 </html>
+
+

@@ -1,30 +1,25 @@
 ﻿<!DOCTYPE html>
 <html>
 <head>
-<title>ATV Exchange - My Orders</title>
+<title>ATV Exchange - Withdrawal PIN</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
 <link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
 </head>
-
 <body>
-<div class="app">
-<h2>My Orders</h2>
-
-<div class="nav">
-<button onclick="goToPage('exchange.html')">Exchange</button>
-<button onclick="goToPage('profile.html')">Profile</button>
-<button onclick="goToPage('kyc.html')">KYC</button>
-<button onclick="logout()">Logout</button>
+<div class="app page-shell">
+<div class="page-topbar">
+<button class="back-btn" onclick="goToPage('settings.html')">Back</button>
+<div><span class="admin-kicker">Security</span><h2>Withdrawal PIN</h2></div>
 </div>
-
-<div class="card">
-<input id="myOrderSearchInput" placeholder="Search your orders..." oninput="searchMyOrders()">
-<div id="myOrders"></div>
+<section class="card">
+<input id="withdrawalPin" type="password" inputmode="numeric" maxlength="6" placeholder="Create 4-6 digit PIN">
+<input id="withdrawalPinConfirm" type="password" inputmode="numeric" maxlength="6" placeholder="Confirm PIN">
+<button onclick="saveWithdrawalPin()">Save PIN</button>
+<div id="withdrawalPinStatus" class="help"></div>
+</section>
 </div>
-</div>
-
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>

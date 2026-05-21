@@ -1,30 +1,26 @@
 ﻿<!DOCTYPE html>
 <html>
 <head>
-<title>ATV Exchange - My Orders</title>
+<title>About ATV Exchange</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
 <link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
 </head>
-
 <body>
-<div class="app">
-<h2>My Orders</h2>
-
-<div class="nav">
-<button onclick="goToPage('exchange.html')">Exchange</button>
-<button onclick="goToPage('profile.html')">Profile</button>
-<button onclick="goToPage('kyc.html')">KYC</button>
-<button onclick="logout()">Logout</button>
+<div class="app page-shell">
+<div class="page-topbar">
+<button class="back-btn" onclick="goToPage('settings.html')">Back</button>
+<div><span class="admin-kicker">ATV Exchange</span><h2>About</h2></div>
 </div>
-
-<div class="card">
-<input id="myOrderSearchInput" placeholder="Search your orders..." oninput="searchMyOrders()">
-<div id="myOrders"></div>
+<section class="card about-card">
+<h3>ATV Exchange</h3>
+<p>ATV Exchange is a secure fintech exchange platform for wallet deposits, withdrawals, internal transfers, and currency conversion.</p>
+<div class="mini-row"><span>Support</span><b>24/7 in-app chat</b></div>
+<div class="mini-row"><span>Security</span><b>KYC, alerts, and admin approval</b></div>
+<div class="mini-row"><span>Version</span><b>2026.05</b></div>
+</section>
 </div>
-</div>
-
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>

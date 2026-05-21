@@ -1,0 +1,64 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - KYC Verification</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+
+<body>
+<div class="app">
+<h2>KYC Verification</h2>
+
+<div class="nav">
+<button onclick="goToPage('exchange.html')">Exchange</button>
+<button onclick="goToPage('profile.html')">Profile</button>
+<button onclick="goToPage('orders.html')">My Orders</button>
+<button onclick="logout()">Logout</button>
+</div>
+
+<div id="kycVerifiedCard" class="card kyc-verified-card hidden">
+<div class="success-mark">Done</div>
+<h3 id="kycVerifiedTitle">KYC Verified</h3>
+<p id="kycVerifiedMessage">Your identity verification is approved and locked. You do not need to submit KYC again.</p>
+<div id="kycVerifiedMeta" class="help"></div>
+<button onclick="goToPage('exchange.html')">Back to Dashboard</button>
+</div>
+
+<div id="kycFormWrap">
+<div class="card">
+<h3>ID Verification</h3>
+<select id="kycCountry" onchange="updateIdTypes('', this.value)">
+<option value="">Select Country</option>
+</select>
+<select id="idType">
+<option value="">Select ID Type</option>
+</select>
+<input id="idNumber" placeholder="ID Number">
+<div class="help">Upload a clear image/PDF of the ID document.</div>
+<input type="file" id="idVerificationFile">
+</div>
+
+<div class="card">
+<h3>Proof of Address</h3>
+<input id="proofOfAddressType" placeholder="Document Type e.g. Utility Bill, Bank Statement">
+<div class="help">Upload a document that shows your name and address.</div>
+<input type="file" id="proofOfAddressFile">
+<button id="kycSubmitBtn" onclick="saveKyc()">Submit KYC Verification</button>
+<div id="kycStatusBox"></div>
+<div id="profileNextStep" class="help"></div>
+</div>
+</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+

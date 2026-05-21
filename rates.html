@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange - Rates</title>
+<title>ATV Exchange - Rates</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
 </head>
 
 <body>
@@ -22,15 +22,10 @@
 </div>
 
 <div class="card">
-<h3>Customer Exchange Rates</h3>
-<input id="rateCedisInput" type="number" step="0.00001" placeholder="Cedis to Naira rate">
-<input id="rateNairaInput" type="number" step="0.00001" placeholder="Naira to Cedis divisor rate">
-</div>
-
-<div class="card">
-<h3>Business Cost Rates</h3>
-<input id="costRateCedisInput" type="number" step="0.00001" placeholder="Business cost: Cedis to Naira">
-<input id="costRateNairaInput" type="number" step="0.00001" placeholder="Business cost: Naira to Cedis divisor">
+<h3>P2P Exchange Rates</h3>
+<input id="rateCedisInput" type="number" step="0.00001" placeholder="GHS -> NGN rate">
+<input id="rateNairaInput" type="number" step="0.00001" placeholder="NGN -> GHS rate">
+<div class="help">Set both directions manually. The app will not reverse or auto-calculate rates.</div>
 </div>
 
 <div class="card">
@@ -43,6 +38,12 @@
 <h3>MoMo Open API</h3>
 <input id="momoEndpointInput" placeholder="Backend Request To Pay endpoint">
 <div class="help">MoMo API credentials must stay on your backend. This app calls only your backend endpoint.</div>
+</div>
+
+<div class="card">
+<h3>Currency API</h3>
+<input id="currencyApiEndpointInput" placeholder="Backend Currency API endpoint">
+<div class="help">Deposits and withdrawals should be confirmed by your backend before balances are updated.</div>
 <button onclick="saveRates()">Save Rates</button>
 <div id="ratesStatus"></div>
 </div>
@@ -52,6 +53,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="./app.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
 </body>
 </html>
+
+

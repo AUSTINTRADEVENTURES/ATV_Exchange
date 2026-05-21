@@ -1,0 +1,102 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Announcements</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+
+<body>
+<div class="app admin-shell">
+<div class="admin-topbar">
+<div>
+<span class="admin-kicker">ATV Exchange Communications</span>
+<h1>Admin Announcements</h1>
+<p>Send clean customer announcements for promotions, maintenance, security updates, and system notices.</p>
+</div>
+<button class="admin-logout-btn" onclick="logout()">Logout</button>
+</div>
+
+<div class="admin-nav">
+<button onclick="goToPage('dashboard.html')">Dashboard</button>
+<button onclick="goToPage('rates.html')">Rates</button>
+<button onclick="goToPage('support-admin.html')">Support Chat</button>
+<button onclick="goToPage('exchange.html')">Exchange</button>
+</div>
+
+<section class="admin-queue-card announcement-compose">
+<div class="admin-card-head">
+<div>
+<span class="admin-kicker">Broadcast</span>
+<h2>Create Announcement</h2>
+</div>
+<select id="announcementType">
+<option value="system">System Update</option>
+<option value="promotion">Promotion</option>
+<option value="maintenance">Maintenance</option>
+<option value="security">Security Alert</option>
+<option value="rate-update">Rate Update</option>
+</select>
+</div>
+
+<div class="announcement-form-grid">
+<label>
+<span>Title</span>
+<input id="announcementTitle" placeholder="Example: Scheduled maintenance tonight">
+</label>
+<label>
+<span>Priority</span>
+<select id="announcementPriority">
+<option value="medium">Medium</option>
+<option value="low">Low</option>
+<option value="high">High</option>
+<option value="critical">Critical</option>
+</select>
+</label>
+<label class="full">
+<span>Message</span>
+<textarea id="announcementMessage" rows="5" placeholder="Write a short, clear announcement customers will understand."></textarea>
+</label>
+<label>
+<span>Action Link</span>
+<input id="announcementLink" value="exchange.html" placeholder="exchange.html">
+</label>
+<label class="checkbox-line">
+<input id="announcementSendPush" type="checkbox" checked>
+<span>Send phone push notification</span>
+</label>
+</div>
+
+<div class="announcement-preview">
+<span class="admin-kicker">Preview</span>
+<h3 id="announcementPreviewTitle">Announcement title</h3>
+<p id="announcementPreviewMessage">Your announcement message will preview here.</p>
+</div>
+
+<button id="sendAnnouncementBtn" onclick="sendAnnouncement()">Send Announcement</button>
+<button class="outline-btn" onclick="sendTestPushToMe()">Send Test Push To This Device</button>
+<div id="announcementStatus"></div>
+</section>
+
+<section class="admin-queue-card">
+<div class="admin-card-head">
+<div>
+<span class="admin-kicker">History</span>
+<h2>Recent Announcements</h2>
+</div>
+</div>
+<div id="announcementsList" class="admin-order-list">Loading announcements...</div>
+</section>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+

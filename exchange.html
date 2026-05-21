@@ -1,88 +1,131 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
-<title>Swift Exchange - Exchange</title>
+<title>ATV Exchange - Exchange</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
 </head>
 
 <body>
-<div class="app shell">
-<div class="topbar">
-<div>
-<div class="brand-mark">S</div>
-<div>
-<h1>SwiftEx</h1>
-<p>Fast. Secure. Reliable.</p>
+<div class="app shell premium-dashboard">
+<aside class="dashboard-sidebar">
+<div class="sidebar-logo">
+<strong>ATV</strong>
+<span>EXCHANGE</span>
 </div>
+<nav class="sidebar-nav">
+<button class="active" onclick="goToPage('exchange.html')">Dashboard</button>
+<button onclick="goToPage('wallet-convert.html')">Wallets</button>
+<button onclick="goToPage('deposit.html')">Deposit</button>
+<button onclick="goToPage('withdraw.html')">Withdraw</button>
+<button onclick="goToPage('convert.html')">Convert</button>
+<button onclick="goToPage('orders.html')">Transactions</button>
+<button onclick="goToPage('orders.html')">Orders</button>
+<button onclick="goToPage('settings.html')">Settings</button>
+<button onclick="goToPage('support.html')">Support</button>
+</nav>
+<div class="sidebar-help">
+<b>Need Help?</b>
+<span>Our support team is ready.</span>
+<button onclick="goToPage('support.html')">Contact Support</button>
 </div>
-<button class="icon-btn" onclick="goToPage('support.html')">Support</button>
+</aside>
+
+<main class="dashboard-main">
+<div class="mobile-app-header">
+<button class="mobile-avatar" onclick="goToPage('profile.html')" aria-label="Profile"></button>
+<div class="mobile-logo">
+<strong>ATV</strong>
+<span>EXCHANGE</span>
+</div>
+<div class="mobile-header-actions">
+<button class="mobile-bell bell-btn" onclick="goToPage('notifications.html')" aria-label="Notifications"></button>
+<button class="mobile-menu-btn menu-btn" onclick="toggleMoreMenu()" aria-label="Menu"><span></span><span></span><span></span></button>
+</div>
 </div>
 
-<div class="nav">
-<button onclick="goToPage('exchange.html')">Exchange</button>
-<button onclick="goToPage('profile.html')">Profile/KYC</button>
-<button onclick="goToPage('orders.html')">My Orders</button>
+<div class="topbar">
+<div>
+<h1>Hello, <span id="homeCustomerName">Customer</span> <span class="wave">ðŸ‘‹</span></h1>
+<p>Welcome back to ATV Exchange</p>
+</div>
+<div class="top-actions">
+<button class="circle-btn bell-btn" onclick="goToPage('notifications.html')" aria-label="Notifications"></button>
+<button class="circle-btn menu-btn" onclick="toggleMoreMenu()" aria-label="Menu"><span></span><span></span><span></span></button>
+</div>
+</div>
+
+<div id="moreMenu" class="more-menu hidden">
+<button onclick="goToPage('kyc.html')">KYC Verification</button>
+<button onclick="goToPage('settings.html')">Settings</button>
+<button onclick="goToPage('rates.html')" id="ratesBtn" class="hidden">Admin Rates</button>
 <button onclick="goToPage('support.html')">Support</button>
+<button onclick="goToPage('about.html')">About</button>
+<button id="adminHomeBtn" class="hidden" onclick="goToPage('dashboard.html')">Admin Dashboard</button>
 <button id="dashboardBtn" class="hidden" onclick="goToPage('dashboard.html')">Dashboard</button>
 <button id="profitBtn" class="hidden" onclick="goToPage('profit.html')">Profit</button>
 <button id="customersBtn" class="hidden" onclick="goToPage('customers.html')">Customers</button>
 <button id="kycBtn" class="hidden" onclick="goToPage('kyc-admin.html')">KYC Review</button>
-<button id="ratesBtn" class="hidden" onclick="goToPage('rates.html')">Rates</button>
 <button onclick="logout()">Logout</button>
 </div>
 
-<section class="hero-panel">
-<div class="profile-row">
-<div class="avatar">SE</div>
-<div>
-<p>Hello,</p>
-<h2 id="homeCustomerName">Customer</h2>
-<span id="homeKycBadge" class="badge pending">KYC pending</span>
+<section class="balance-card">
+<div class="balance-switch">
+<button id="ghsBalanceTab" class="active" onclick="switchBalanceCurrency('GHS')">GHS</button>
+<button id="ngnBalanceTab" onclick="switchBalanceCurrency('NGN')">NGN</button>
 </div>
+<div class="balance-card-head">
+<p id="balanceCardLabel">GHS Available Balance</p>
+<button id="balanceToggleBtn" class="eye-btn" onclick="toggleBalance()" aria-label="Hide balance" title="Hide balance">ðŸ‘</button>
 </div>
-
-<div class="balance-card">
-<p>Total Exchange Value</p>
-<h2 id="homeBalance">GHS 0.00</h2>
+<h2 id="homeBalance" data-value="GHS 0.00">GHS 0.00</h2>
+<div class="balance-meta">
+<div><span>Account Level</span><b id="homeTierBadge">Basic</b><small id="homeVipBadge" class="vip-badge hidden">VIP1</small></div>
+<div><span>Account Status</span><b id="homeKycBadge" class="badge pending">KYC pending</b></div>
+</div>
 <div class="balance-grid">
-<div>
-<span>GHS Balance</span>
-<b id="homeGhsBalance">GHS 0.00</b>
+<div id="ghsBalanceBox">
+<span><span class="flag">GH</span> GHS Balance</span>
+<b id="homeGhsBalance" data-value="GHS 0.00">GHS 0.00</b>
 </div>
-<div>
-<span>NGN Value</span>
-<b id="homeNgnBalance">NGN 0.00</b>
-</div>
+<div id="ngnBalanceBox">
+<span><span class="flag">NG</span> NGN Balance</span>
+<b id="homeNgnBalance" data-value="NGN 0.00">NGN 0.00</b>
 </div>
 </div>
 </section>
 
 <section class="action-grid">
-<button onclick="document.getElementById('amount').focus()">Convert</button>
-<button onclick="goToPage('payment.html')">Send</button>
-<button onclick="goToPage('orders.html')">Receive</button>
+<button onclick="goToPage('deposit.html')"><b>Deposit</b><span>Add funds</span></button>
+<button onclick="goToPage('wallet-convert.html')"><b>Swap</b><span>Wallet convert</span></button>
+<button onclick="goToPage('transfer.html')"><b>Transfer</b><span>Send money</span></button>
+<button onclick="goToPage('convert.html')"><b>Convert</b><span>Exchange assets</span></button>
+<button onclick="goToPage('withdraw.html')"><b>Withdraw</b><span>Cash out</span></button>
 </section>
 
-<div class="card quick-card">
-<div class="section-title">
-<h3>Quick Convert</h3>
-<span id="homeRateText">Loading rate...</span>
+<div id="enablePushCard" class="card push-card">
+<div>
+<h3>Enable Notifications</h3>
+<p class="help">Get wallet, order, KYC, support, and transfer alerts on this device.</p>
 </div>
-<select id="type" onchange="updateResult()">
-<option value="cedis">Cedis -> Naira</option>
-<option value="naira">Naira -> Cedis</option>
-</select>
-
-<input id="amount" type="number" placeholder="Enter amount" oninput="updateResult()">
-<div id="result" class="result"></div>
-
-<button onclick="saveExchangeAndContinue()">Continue</button>
+<button onclick="enablePushNotifications()">Enable Notifications</button>
+<div id="pushStatus" class="help"></div>
 </div>
 
-<div class="card">
+<section id="adminQuickPanel" class="admin-panel hidden">
+<h3>Admin</h3>
+<div class="admin-grid">
+<button onclick="goToPage('dashboard.html')">Dashboard</button>
+<button onclick="goToPage('kyc-admin.html')">KYC Review</button>
+<button onclick="goToPage('rates.html')">Rates</button>
+<button onclick="goToPage('support-admin.html')">Support Inbox</button>
+</div>
+</section>
+
+<section class="dashboard-grid">
+<div class="card recent-card">
 <div class="section-title">
 <h3>Recent Transactions</h3>
 <button class="text-btn" onclick="goToPage('orders.html')">View All</button>
@@ -90,23 +133,68 @@
 <div id="homeRecentTransactions">Loading...</div>
 </div>
 
-<div class="security-banner">
-<h3>Trade with Confidence</h3>
-<p>Your transactions are protected with KYC review, admin checks, and secure payment references.</p>
+<div class="card rates-card">
+<div class="section-title">
+<h3>Live Exchange Rates</h3>
+<button class="text-btn" onclick="goToPage('rates.html')">View all</button>
+</div>
+<div class="rate-table">
+<div><span>Pair</span><span>Buy</span><span>Sell</span></div>
+<div><b>GHS / NGN</b><span id="homeRateText" class="live-rate">Loading...</span><strong>+0.80%</strong></div>
+<div><b>NGN / GHS</b><span>Manual P2P</span><strong>+0.65%</strong></div>
+</div>
 </div>
 
-<div class="bottom-nav">
-<button onclick="goToPage('exchange.html')">Home</button>
-<button onclick="goToPage('orders.html')">My Orders</button>
-<button onclick="goToPage('support.html')">Support</button>
-<button onclick="goToPage('profile.html')">Profile</button>
+<div class="card pending-card">
+<div class="section-title">
+<h3>Pending Orders</h3>
+<button class="text-btn" onclick="goToPage('orders.html')">View all</button>
 </div>
+<div id="homePendingOrders" class="pending-summary">Checking your orders...</div>
+</div>
+
+<div class="card support-card">
+<div class="section-title">
+<h3>Support</h3>
+<button class="text-btn" onclick="goToPage('support.html')">Open</button>
+</div>
+<p class="help">Chat with support inside the app. WhatsApp remains available as a backup channel.</p>
+</div>
+</section>
+
+<div class="security-banner">
+<div>
+<span>Secure. Fast. Reliable.</span>
+<h3>Trade with confidence on ATV Exchange</h3>
+<p>Best rates, protected wallet activity, and support when you need it.</p>
+</div>
+<button onclick="goToPage('convert.html')">Start Trading</button>
+</div>
+
+<section class="service-grid">
+<button onclick="goToPage('deposit.html')"><b>Payment Options</b><span>MTN MoMo and OPay details</span></button>
+<button onclick="goToPage('wallet-convert.html')"><b>Wallet Swap</b><span>Instant balance conversion</span></button>
+<button onclick="goToPage('orders.html')"><b>Order History</b><span>Track every request</span></button>
+<button onclick="goToPage('support.html')"><b>Support Chat</b><span>Get help quickly</span></button>
+</section>
+
+<div class="bottom-nav">
+<button onclick="goToPage('exchange.html')"><b>Dashboard</b></button>
+<button onclick="goToPage('orders.html')"><b>Orders</b></button>
+<button class="nav-convert" onclick="goToPage('convert.html')"><b>Convert</b></button>
+<button onclick="goToPage('wallet-convert.html')"><b>Wallets</b></button>
+<button onclick="goToPage('wallet-convert.html')"><b>Swap</b></button>
+</div>
+</main>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="./app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
 </body>
 </html>
+
+

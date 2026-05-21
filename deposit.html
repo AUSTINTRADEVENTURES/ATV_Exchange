@@ -1,0 +1,115 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Deposit</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+
+<body>
+<div class="app payment-flow-shell">
+<div class="payment-flow-top">
+<div>
+<span class="admin-kicker">Wallet Funding</span>
+<h1>Deposit Funds</h1>
+<p>Follow one simple step at a time. Your deposit order is saved before payment instructions begin.</p>
+</div>
+<button onclick="goToPage('exchange.html')">Dashboard</button>
+</div>
+
+<div class="step-meter">
+<b id="depositStepCount">Step 1 of 5</b>
+<span id="depositStepTitle">Select Deposit Currency</span>
+</div>
+<div class="journey-tracker compact deposit-tracker">
+<span id="depositTrack1" class="active">Currency</span>
+<span id="depositTrack2">Amount</span>
+<span id="depositTrack3">Method</span>
+<span id="depositTrack4">Payment</span>
+<span id="depositTrack5">Confirmation</span>
+</div>
+
+<section id="depositStep1" class="flow-panel">
+<span class="flow-step-label">Step 1 - Select Deposit Currency</span>
+<h2>Which wallet do you want to fund?</h2>
+<div class="method-grid">
+<button id="depositGhsBtn" class="method-card active" onclick="selectDepositCurrency('GHS')">
+<b>GHS Deposit</b>
+<span>Fund your Cedis wallet</span>
+</button>
+<button id="depositNgnBtn" class="method-card" onclick="selectDepositCurrency('NGN')">
+<b>NGN Deposit</b>
+<span>Fund your Naira wallet</span>
+</button>
+</div>
+<select id="depositCurrency" class="hidden" onchange="updateDepositPaymentInstructions()">
+<option value="GHS">Cedis (GHS)</option>
+<option value="NGN">Naira (NGN)</option>
+</select>
+<button onclick="showDepositStep(2)">Continue</button>
+</section>
+
+<section id="depositStep2" class="flow-panel hidden">
+<span class="flow-step-label">Step 2 - Enter Deposit Amount</span>
+<h2>How much do you want to deposit?</h2>
+<input id="depositAmount" type="text" inputmode="decimal" placeholder="Amount to deposit" oninput="formatAmountInput(this,'updateDepositAmountPreview')">
+<div id="depositAmountPreview" class="flow-summary">Enter an amount to continue.</div>
+<button class="secondary-link" onclick="showDepositStep(1)">Back</button>
+<button onclick="goToDepositMethodStep()">Continue</button>
+</section>
+
+<section id="depositStep3" class="flow-panel hidden">
+<span class="flow-step-label">Step 3 - Select Deposit Method</span>
+<h2>Choose deposit method</h2>
+<div class="method-grid">
+<button id="depositMethodPrimary" class="method-card active" onclick="selectDepositMethod('primary')">
+<b>MTN Mobile Money</b>
+<span id="depositMethodPrimaryText">Active for GHS deposits</span>
+</button>
+<button class="method-card disabled" disabled>
+<b>Bank Transfer</b>
+<span>Coming Soon</span>
+</button>
+</div>
+<button class="secondary-link" onclick="showDepositStep(2)">Back</button>
+<button id="createDepositOrderBtn" onclick="createDepositOrder()">Continue</button>
+<div id="depositStatus" class="help"></div>
+</section>
+
+<section id="depositStep4" class="flow-panel hidden">
+<span class="flow-step-label">Step 4 - Payment Instruction</span>
+<h2>Complete your payment</h2>
+<div id="depositOrderSummary" class="flow-summary"></div>
+<div id="depositPaymentInstructions" class="payment-instructions dark"></div>
+<div id="depositCountdown" class="countdown-box">15:00</div>
+<div class="warning-box">Do not mark deposit as paid unless payment was successfully completed. False claims may delay or cancel your deposit.</div>
+<input id="depositSenderName" placeholder="Sender Name">
+<input id="depositTransactionId" placeholder="Transaction ID / Reference ID">
+<label class="upload-label">Screenshot proof (optional but recommended)</label>
+<input id="depositScreenshot" type="file" accept="image/*">
+<button id="depositBtn" onclick="submitDepositPaymentProof()">I Have Made Payment</button>
+<div id="depositPaymentStatus" class="help"></div>
+</section>
+
+<section id="depositStep5" class="flow-panel hidden done-panel">
+<div id="depositDoneIcon" class="done-icon">DONE</div>
+<h2 id="depositWaitingTitle">Waiting for Admin Confirmation</h2>
+<p id="depositWaitingMessage">Your deposit proof has been submitted for admin review.</p>
+<div id="depositLiveStatus" class="flow-summary"></div>
+<div id="depositRejectionReason" class="warning-box hidden"></div>
+<button onclick="goToPage('orders.html')">View History</button>
+<button class="secondary-link" onclick="goToPage('exchange.html')">Back to Dashboard</button>
+</section>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+

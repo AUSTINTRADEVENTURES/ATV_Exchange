@@ -1,30 +1,20 @@
 ﻿<!DOCTYPE html>
 <html>
 <head>
-<title>ATV Exchange - My Orders</title>
+<title>ATV Exchange - Admin Notifications</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
 <link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
 </head>
-
 <body>
-<div class="app">
-<h2>My Orders</h2>
-
-<div class="nav">
-<button onclick="goToPage('exchange.html')">Exchange</button>
-<button onclick="goToPage('profile.html')">Profile</button>
-<button onclick="goToPage('kyc.html')">KYC</button>
-<button onclick="logout()">Logout</button>
+<div class="app admin-shell">
+<div class="admin-topbar"><div><span class="admin-kicker">Admin Alerts</span><h1>Notifications</h1><p>Important admin activity and order alerts.</p></div><button class="admin-logout-btn" onclick="goToPage('dashboard.html')">Dashboard</button></div>
+<section class="admin-queue-card full-list-card">
+<div class="admin-card-head"><div><span class="admin-kicker">Latest Alerts</span><h2>Notification Center</h2></div></div>
+<div id="adminNotificationsList" class="admin-order-list compact-admin-list">Loading notifications...</div>
+</section>
 </div>
-
-<div class="card">
-<input id="myOrderSearchInput" placeholder="Search your orders..." oninput="searchMyOrders()">
-<div id="myOrders"></div>
-</div>
-</div>
-
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>

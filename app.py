@@ -1,0 +1,508 @@
+from flask import Flask, jsonify, request, send_from_directory, abort
+from flask_cors import CORS
+import firebase_admin
+from firebase_admin import auth, credentials, firestore, messaging
+import os
+import time
+from urllib.parse import urljoin
+
+app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
+PUBLIC_FILES = {
+    "index.html",
+    "signup.html",
+    "exchange.html",
+    "convert.html",
+    "payment.html",
+    "deposit.html",
+    "withdraw.html",
+    "transfer.html",
+    "wallet-convert.html",
+    "orders.html",
+    "order-detail.html",
+    "success.html",
+    "profile.html",
+    "kyc.html",
+    "dashboard.html",
+    "settings.html",
+    "notifications.html",
+    "notification-settings.html",
+    "payment-method.html",
+    "add-payment-method.html",
+    "security.html",
+    "withdrawal-pin.html",
+    "about.html",
+    "customers.html",
+    "profit.html",
+    "rates.html",
+    "announcements.html",
+    "kyc-admin.html",
+    "support.html",
+    "support-admin.html",
+    "support-chat-admin.html",
+    "app.js",
+    "styles.css",
+    "manifest.json",
+    "sw.js",
+    "firebase-messaging-sw.js",
+    "icon.png",
+}
+
+ALLOWED_ORIGINS = [
+    "https://atvexchange.pythonanywhere.com",
+    "https://austintradeventures.github.io",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
+
+SERVICE_ACCOUNT_PATH = os.environ.get(
+    "FIREBASE_SERVICE_ACCOUNT",
+    "/home/ATVEXCHANGE/firebase-service-account.json"
+)
+APP_BASE_URL = os.environ.get(
+    "ATV_APP_BASE_URL",
+    "https://atvexchange.pythonanywhere.com"
+).rstrip("/")
+
+ADMIN_EMAILS = {
+    "ezeaugustinemmaduabuchi@gmail.com",
+}
+
+if not firebase_admin._apps:
+    cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+
+
+def json_error(message, status=400):
+    return jsonify({"ok": False, "message": message}), status
+
+
+def verify_request_user():
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return None
+
+    token = header.replace("Bearer ", "", 1).strip()
+    if not token:
+        return None
+
+    return auth.verify_id_token(token)
+
+
+def is_admin(decoded):
+    email = (decoded or {}).get("email", "").strip().lower()
+    return email in ADMIN_EMAILS
+
+
+def absolute_link(link):
+    if not link:
+        return APP_BASE_URL + "/exchange.html"
+    if link.startswith("http://") or link.startswith("https://"):
+        return link
+    return urljoin(APP_BASE_URL + "/", link.lstrip("./"))
+
+
+def stringify_data(data):
+    output = {}
+    for key, value in (data or {}).items():
+        if value is None:
+            continue
+        output[str(key)] = value if isinstance(value, str) else str(value)
+    return output
+
+
+def token_docs_for_user(uid):
+    if not uid:
+        return []
+
+    docs = db.collection("users").document(uid).collection("fcmTokens").stream()
+    tokens = []
+    for doc in docs:
+        token_doc = doc.to_dict() or {}
+        if token_doc.get("enabled") is False:
+            continue
+        token = token_doc.get("token")
+        if token:
+            tokens.append(token)
+    return tokens
+
+
+def user_allows_push_type(user, push_type):
+    settings = (user or {}).get("notificationSettings") or {}
+    if settings.get("pushEnabled") is False:
+        return False
+    if push_type == "announcement" and settings.get("announcements") is False:
+        return False
+    if push_type == "rate-update" and settings.get("rateUpdates") is False:
+        return False
+    return True
+
+
+def admin_tokens():
+    tokens = []
+    users = db.collection("users").stream()
+    for doc in users:
+        user = doc.to_dict() or {}
+        email = str(user.get("email") or "").strip().lower()
+        if email in ADMIN_EMAILS:
+            tokens.extend(token_docs_for_user(doc.id))
+    return tokens
+
+
+def all_customer_tokens():
+    tokens = []
+    users = db.collection("users").stream()
+    for doc in users:
+        user = doc.to_dict() or {}
+        if not user_allows_push_type(user, "announcement"):
+            continue
+        tokens.extend(token_docs_for_user(doc.id))
+    return tokens
+
+
+def all_customer_tokens_for_type(push_type):
+    tokens = []
+    users = db.collection("users").stream()
+    for doc in users:
+        user = doc.to_dict() or {}
+        if user_allows_push_type(user, push_type):
+            tokens.extend(token_docs_for_user(doc.id))
+    return tokens
+
+
+def send_push(tokens, title, body, link, data=None):
+    clean_tokens = list(dict.fromkeys([token for token in tokens if token]))
+    resolved_link = absolute_link(link)
+
+    if not clean_tokens:
+        return {
+            "status": "no_tokens",
+            "successCount": 0,
+            "failureCount": 0,
+            "link": resolved_link,
+        }
+
+    payload_data = stringify_data({
+        **(data or {}),
+        "title": title,
+        "body": body,
+        "link": resolved_link,
+        "icon": APP_BASE_URL + "/icon.png",
+        "badge": APP_BASE_URL + "/icon.png",
+        "priority": (data or {}).get("priority", "medium"),
+    })
+    priority = str((data or {}).get("priority", "medium")).lower()
+    is_important = priority in {"critical", "high"}
+
+    response = messaging.send_each_for_multicast(
+        messaging.MulticastMessage(
+            tokens=clean_tokens,
+            webpush=messaging.WebpushConfig(
+                headers={"Urgency": "high" if is_important else "normal"},
+                notification=messaging.WebpushNotification(
+                    title=title,
+                    body=body,
+                    icon=APP_BASE_URL + "/icon.png",
+                    badge=APP_BASE_URL + "/icon.png",
+                    tag=str((data or {}).get("type", "atv-notification")),
+                    renotify=True,
+                    require_interaction=is_important,
+                    vibrate=[220, 120, 220] if is_important else [120],
+                    data={"link": resolved_link, **(data or {})},
+                ),
+                fcm_options=messaging.WebpushFCMOptions(link=resolved_link),
+            ),
+            data=payload_data,
+        )
+    )
+
+    return {
+        "status": "sent",
+        "successCount": response.success_count,
+        "failureCount": response.failure_count,
+        "link": resolved_link,
+    }
+
+
+def save_push_log(decoded, target, payload, result):
+    db.collection("pushLogs").add({
+        "target": target,
+        "title": payload.get("title", ""),
+        "body": payload.get("body", ""),
+        "link": result.get("link", payload.get("link", "")),
+        "data": payload.get("data", {}),
+        "status": result.get("status", ""),
+        "successCount": result.get("successCount", 0),
+        "failureCount": result.get("failureCount", 0),
+        "requestedByUid": decoded.get("uid", ""),
+        "requestedByEmail": decoded.get("email", ""),
+        "createdAt": firestore.SERVER_TIMESTAMP,
+    })
+
+
+def validate_push_payload(data, require_user=False):
+    if require_user and not data.get("userId"):
+        return "Missing userId"
+    if not data.get("title"):
+        return "Missing title"
+    if not data.get("body"):
+        return "Missing body"
+    return ""
+
+
+def normalize_payload(data, default_link):
+    return {
+        "title": data.get("title", ""),
+        "body": data.get("body") or data.get("message") or "",
+        "link": data.get("link") or data.get("actionLink") or default_link,
+        "data": data.get("data") or data.get("metadata") or {},
+    }
+
+
+def can_serve_public_file(filename):
+    clean_name = filename.split("?", 1)[0].strip("/")
+    if not clean_name or clean_name.startswith(".") or ".." in clean_name:
+        return False
+    if clean_name in PUBLIC_FILES:
+        return True
+    _, ext = os.path.splitext(clean_name)
+    return ext.lower() in PUBLIC_EXTENSIONS and os.path.isfile(os.path.join(BASE_DIR, clean_name))
+
+
+@app.get("/health")
+def health():
+    return jsonify({"ok": True, "service": "ATV Exchange Push Backend"})
+
+
+@app.get("/diagnostics/pages")
+def page_diagnostics():
+    pages = sorted([name for name in PUBLIC_FILES if name.endswith(".html")])
+    return jsonify({
+        "ok": True,
+        "baseDir": BASE_DIR,
+        "pages": [
+            {
+                "file": page,
+                "exists": os.path.isfile(os.path.join(BASE_DIR, page)),
+                "url": APP_BASE_URL + "/" + page,
+            }
+            for page in pages
+        ],
+    })
+
+
+@app.get("/")
+def home():
+    return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.post("/notify-user")
+@app.post("/send-notification")
+def notify_user():
+    try:
+        decoded = verify_request_user()
+    except Exception:
+        return json_error("Invalid Firebase token", 401)
+
+    if not decoded:
+        return json_error("Missing Firebase token", 401)
+
+    data = request.get_json(silent=True) or {}
+    payload = normalize_payload(data, "exchange.html")
+    data = {**data, **payload}
+    error = validate_push_payload(data, require_user=True)
+    if error:
+        return json_error(error)
+
+    target_uid = data.get("userId")
+    if target_uid != decoded.get("uid") and not is_admin(decoded):
+        return json_error("Admin permission required", 403)
+
+    result = send_push(
+        token_docs_for_user(target_uid),
+        data["title"],
+        data["body"],
+        data.get("link", "exchange.html"),
+        data.get("data", {}),
+    )
+    save_push_log(decoded, {"userId": target_uid}, data, result)
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/send-self-test")
+def send_self_test():
+    try:
+        decoded = verify_request_user()
+    except Exception:
+        return json_error("Invalid Firebase token", 401)
+
+    if not decoded:
+        return json_error("Missing Firebase token", 401)
+
+    data = request.get_json(silent=True) or {}
+    payload = {
+        "title": data.get("title", "ATV Exchange Test"),
+        "body": data.get("body", "Your phone push notifications are working."),
+        "link": data.get("link", "exchange.html"),
+        "data": data.get("data", {"type": "test", "priority": "high"}),
+    }
+    result = send_push(
+        token_docs_for_user(decoded.get("uid")),
+        payload["title"],
+        payload["body"],
+        payload["link"],
+        payload["data"],
+    )
+    save_push_log(decoded, {"userId": decoded.get("uid"), "test": True}, payload, result)
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/notify-admins")
+@app.post("/send-admin-alert")
+def notify_admins():
+    try:
+        decoded = verify_request_user()
+    except Exception:
+        return json_error("Invalid Firebase token", 401)
+
+    if not decoded:
+        return json_error("Missing Firebase token", 401)
+
+    data = request.get_json(silent=True) or {}
+    data = {**data, **normalize_payload(data, "dashboard.html")}
+    error = validate_push_payload(data)
+    if error:
+        return json_error(error)
+
+    result = send_push(
+        admin_tokens(),
+        data["title"],
+        data["body"],
+        data.get("link", "dashboard.html"),
+        data.get("data", {}),
+    )
+    save_push_log(decoded, {"role": "admin"}, data, result)
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/broadcast-rate-update")
+def broadcast_rate_update():
+    try:
+        decoded = verify_request_user()
+    except Exception:
+        return json_error("Invalid Firebase token", 401)
+
+    if not decoded:
+        return json_error("Missing Firebase token", 401)
+    if not is_admin(decoded):
+        return json_error("Admin permission required", 403)
+
+    data = request.get_json(silent=True) or {}
+    data = {**data, **normalize_payload(data, "exchange.html")}
+    error = validate_push_payload(data)
+    if error:
+        return json_error(error)
+
+    throttle_ref = db.collection("systemLimits").document("ratePush")
+    throttle = throttle_ref.get()
+    now_ms = int(time.time() * 1000)
+    last_sent = 0
+    if throttle.exists:
+        last_sent = int((throttle.to_dict() or {}).get("lastSentAtMs") or 0)
+    if now_ms - last_sent < 10 * 60 * 1000:
+        return jsonify({"ok": False, "status": "rate_limited", "message": "Rate notification already sent in the last 10 minutes"})
+
+    result = send_push(all_customer_tokens_for_type("rate-update"), data["title"], data["body"], data.get("link", "exchange.html"), data.get("data", {}))
+    throttle_ref.set({"lastSentAtMs": now_ms, "lastSentAt": firestore.SERVER_TIMESTAMP}, merge=True)
+    save_push_log(decoded, {"role": "customer", "broadcast": "rate-update"}, data, result)
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/broadcast-announcement")
+def broadcast_announcement():
+    try:
+        decoded = verify_request_user()
+    except Exception:
+        return json_error("Invalid Firebase token", 401)
+
+    if not decoded:
+        return json_error("Missing Firebase token", 401)
+    if not is_admin(decoded):
+        return json_error("Admin permission required", 403)
+
+    data = request.get_json(silent=True) or {}
+    data = {**data, **normalize_payload(data, "exchange.html")}
+    error = validate_push_payload(data)
+    if error:
+        return json_error(error)
+
+    result = send_push(all_customer_tokens_for_type("announcement"), data["title"], data["body"], data.get("link", "exchange.html"), data.get("data", {}))
+    save_push_log(decoded, {"role": "customer", "broadcast": "announcement"}, data, result)
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/notify-event")
+def notify_event():
+    try:
+        decoded = verify_request_user()
+    except Exception:
+        return json_error("Invalid Firebase token", 401)
+
+    if not decoded:
+        return json_error("Missing Firebase token", 401)
+
+    data = request.get_json(silent=True) or {}
+    event = data.get("event", "")
+    payload = data.get("payload", {})
+
+    if event.startswith("admin."):
+        request_payload = {
+            "title": payload.get("title", "ATV Exchange Admin Alert"),
+            "body": payload.get("body", "A new admin action needs attention."),
+            "link": payload.get("link", "dashboard.html"),
+            "data": payload.get("data", {}),
+        }
+        result = send_push(
+            admin_tokens(),
+            request_payload["title"],
+            request_payload["body"],
+            request_payload["link"],
+            request_payload["data"],
+        )
+        save_push_log(decoded, {"role": "admin", "event": event}, request_payload, result)
+        return jsonify({"ok": True, **result})
+
+    if event.startswith("user."):
+        user_id = payload.get("userId")
+        if user_id != decoded.get("uid") and not is_admin(decoded):
+            return json_error("Admin permission required", 403)
+        request_payload = {
+            "userId": user_id,
+            "title": payload.get("title", "ATV Exchange"),
+            "body": payload.get("body", "You have a new update."),
+            "link": payload.get("link", "exchange.html"),
+            "data": payload.get("data", {}),
+        }
+        result = send_push(
+            token_docs_for_user(user_id),
+            request_payload["title"],
+            request_payload["body"],
+            request_payload["link"],
+            request_payload["data"],
+        )
+        save_push_log(decoded, {"userId": user_id, "event": event}, request_payload, result)
+        return jsonify({"ok": True, **result})
+
+    return json_error("Unknown notification event")
+
+
+@app.get("/<path:filename>")
+def public_file(filename):
+    clean_name = filename.split("?", 1)[0].strip("/")
+    if can_serve_public_file(clean_name):
+        return send_from_directory(BASE_DIR, clean_name)
+    abort(404)

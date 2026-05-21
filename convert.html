@@ -1,0 +1,67 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Convert</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+
+<body>
+<div class="app payment-flow-shell">
+<div class="payment-flow-top">
+<div>
+<span class="admin-kicker">Currency Exchange</span>
+<h1>Start Conversion</h1>
+<p>Select your direction and amount. Payment starts on the next page.</p>
+</div>
+<button onclick="goToPage('exchange.html')">Dashboard</button>
+</div>
+
+<div class="step-meter">
+<b id="convertStepCount">Step 1 of 6</b>
+<span id="convertStepTitle">Currency Selection</span>
+</div>
+<div class="journey-tracker compact">
+<span id="convertTrack1" class="active">Currency</span>
+<span id="convertTrack2">Amount</span>
+<span>Payment</span>
+<span>Details</span>
+<span>Settlement</span>
+<span>Admin</span>
+</div>
+
+<section id="convertStep1" class="flow-panel convert-page-card">
+<span class="flow-step-label">Step 1 - Currency Selection</span>
+<h2>Choose conversion direction</h2>
+<div class="section-title">
+<h3>Current Rate</h3>
+<span id="homeRateText" class="live-rate">Loading rate...</span>
+</div>
+<select id="type" onchange="updateResult()">
+<option value="cedis">GHS -> NGN</option>
+<option value="naira">NGN -> GHS</option>
+</select>
+<button class="instant-btn" onclick="goToConvertAmountStep()">Continue <span>Next</span></button>
+</section>
+
+<section id="convertStep2" class="flow-panel convert-page-card hidden">
+<span class="flow-step-label">Step 2 - Amount Entry</span>
+<h2>Enter amount to send</h2>
+<input id="amount" type="text" inputmode="decimal" placeholder="Enter amount to send" oninput="formatAmountInput(this,'updateResult')">
+<div id="result" class="result flow-result-box"></div>
+<button class="secondary-link" onclick="showConvertStep(1)">Back</button>
+<button class="instant-btn" onclick="saveExchangeAndContinue()">Continue to Payment <span>Secure</span></button>
+</section>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+

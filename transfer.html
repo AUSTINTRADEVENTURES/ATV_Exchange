@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE html>
 <html>
 <head>
-<title>ATV Exchange - My Orders</title>
+<title>ATV Exchange - Send</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
@@ -10,18 +10,31 @@
 
 <body>
 <div class="app">
-<h2>My Orders</h2>
+<h2>Send Money</h2>
 
 <div class="nav">
-<button onclick="goToPage('exchange.html')">Exchange</button>
+<button onclick="goToPage('exchange.html')">Home</button>
+<button onclick="goToPage('orders.html')">My Orders</button>
 <button onclick="goToPage('profile.html')">Profile</button>
-<button onclick="goToPage('kyc.html')">KYC</button>
 <button onclick="logout()">Logout</button>
 </div>
 
 <div class="card">
-<input id="myOrderSearchInput" placeholder="Search your orders..." oninput="searchMyOrders()">
-<div id="myOrders"></div>
+<h3>Internal Transfer</h3>
+<select id="transferCurrency">
+<option value="GHS">Cedis (GHS)</option>
+<option value="NGN">Naira (NGN)</option>
+</select>
+<input id="transferAmount" type="text" inputmode="decimal" placeholder="Amount to send" oninput="formatAmountInput(this)">
+<input id="recipientLookup" inputmode="numeric" maxlength="10" placeholder="Recipient 9-10 digit ATV UID">
+<div id="recipientPreview" class="recipient-preview hidden"></div>
+<button id="transferBtn" onclick="submitInternalTransfer()">Send Money</button>
+<div id="transferStatus" class="help"></div>
+</div>
+
+<div class="card">
+<h3>Transfer History</h3>
+<div id="transferHistory">Loading...</div>
 </div>
 </div>
 

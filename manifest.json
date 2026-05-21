@@ -1,10 +1,14 @@
-{
-  "name": "Swift Exchange",
-  "short_name": "Exchange",
-  "start_url": "./",
+﻿{
+  "name": "ATV Exchange",
+  "short_name": "ATV",
+  "id": "/index.html",
+  "start_url": "./index.html?v=20260520navpages1",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#0f2027",
-  "theme_color": "#0f2027",
+  "orientation": "portrait",
+  "background_color": "#079247",
+  "theme_color": "#079247",
+  "gcm_sender_id": "103953800507",
   "icons": [
     {
       "src": "./icon.png",
@@ -13,3 +17,5 @@
     }
   ]
 }
+
+

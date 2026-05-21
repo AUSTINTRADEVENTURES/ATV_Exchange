@@ -1,0 +1,40 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Settings</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+<body>
+<div class="app page-shell">
+<div class="page-topbar">
+<button class="back-btn" onclick="goToPage('exchange.html')">Back</button>
+<div>
+<span class="admin-kicker">Account</span>
+<h2>Settings</h2>
+</div>
+</div>
+
+<section class="settings-menu">
+<button onclick="goToPage('profile.html')"><b>Profile</b><span>Manage your personal information</span></button>
+<button onclick="goToPage('kyc.html')"><b>KYC Verification</b><span>Submit or review verification documents</span></button>
+<button onclick="goToPage('payment-method.html')"><b>Payment Method</b><span>View your saved withdrawal account</span></button>
+<button onclick="goToPage('add-payment-method.html')"><b>Add Payment Method</b><span>Add or update payout details</span></button>
+<button onclick="goToPage('notification-settings.html')"><b>Notification Settings</b><span>Manage push, sound, rates, and announcements</span></button>
+<button onclick="goToPage('security.html')"><b>Security</b><span>Password and device security</span></button>
+<button onclick="goToPage('withdrawal-pin.html')"><b>Withdrawal PIN</b><span>Create or update your cash-out PIN</span></button>
+<button onclick="goToPage('about.html')"><b>About ATV Exchange</b><span>App and company information</span></button>
+</section>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+

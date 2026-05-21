@@ -1,0 +1,112 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Withdraw</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./styles.css?v=20260521moneyformat1">
+</head>
+
+<body>
+<div class="app payment-flow-shell">
+<div class="payment-flow-top">
+<div>
+<span class="admin-kicker">Wallet Withdrawal</span>
+<h1>Withdraw Funds</h1>
+<p>Send a withdrawal request in a clean step-by-step flow. Admin will process it from the dashboard.</p>
+</div>
+<button onclick="goToPage('exchange.html')">Dashboard</button>
+</div>
+
+<div class="step-meter">
+<b id="withdrawStepCount">Step 1 of 5</b>
+<span id="withdrawStepTitle">Select Withdrawal Currency</span>
+</div>
+<div class="journey-tracker compact deposit-tracker">
+<span id="withdrawTrack1" class="active">Currency</span>
+<span id="withdrawTrack2">Amount</span>
+<span id="withdrawTrack3">Method</span>
+<span id="withdrawTrack4">Review</span>
+<span id="withdrawTrack5">Status</span>
+</div>
+
+<section id="withdrawStep1" class="flow-panel">
+<span class="flow-step-label">Step 1 - Select Withdrawal Currency</span>
+<h2>Which wallet do you want to withdraw from?</h2>
+<div class="method-grid">
+<button id="withdrawGhsBtn" class="method-card active" onclick="selectWithdrawCurrency('GHS')">
+<b>GHS Withdrawal</b>
+<span>Withdraw from your Cedis wallet</span>
+</button>
+<button id="withdrawNgnBtn" class="method-card" onclick="selectWithdrawCurrency('NGN')">
+<b>NGN Withdrawal</b>
+<span>Withdraw from your Naira wallet</span>
+</button>
+</div>
+<select id="withdrawCurrency" class="hidden" onchange="updateWithdrawPreview()">
+<option value="GHS">Cedis (GHS)</option>
+<option value="NGN">Naira (NGN)</option>
+</select>
+<button onclick="showWithdrawStep(2)">Continue</button>
+</section>
+
+<section id="withdrawStep2" class="flow-panel hidden">
+<span class="flow-step-label">Step 2 - Enter Amount</span>
+<h2>How much do you want to withdraw?</h2>
+<input id="withdrawAmount" type="text" inputmode="decimal" placeholder="Amount to withdraw" oninput="formatAmountInput(this,'updateWithdrawPreview')">
+<button type="button" class="outline-btn" onclick="fillWithdrawAll()">Withdraw All</button>
+<div id="withdrawBalancePreview" class="flow-summary">Loading wallet balance...</div>
+<button class="secondary-link" onclick="showWithdrawStep(1)">Back</button>
+<button onclick="goToWithdrawMethodStep()">Continue</button>
+</section>
+
+<section id="withdrawStep3" class="flow-panel hidden">
+<span class="flow-step-label">Step 3 - Select Payment Method</span>
+<h2>Where should we send your money?</h2>
+<select id="withdrawPaymentMethod" onchange="toggleWithdrawAccountFields()">
+<option value="new">Enter payment method for this withdrawal</option>
+</select>
+<div id="withdrawSavedMethodBox" class="flow-summary">Saved payment method will appear here if available.</div>
+<input id="withdrawProvider" placeholder="Bank / MoMo provider">
+<input id="withdrawAccountName" placeholder="Account holder name">
+<input id="withdrawAccountNumber" placeholder="Account / MoMo number">
+<button class="secondary-link" onclick="showWithdrawStep(2)">Back</button>
+<button onclick="goToWithdrawReviewStep()">Continue</button>
+</section>
+
+<section id="withdrawStep4" class="flow-panel hidden">
+<span class="flow-step-label">Step 4 - Review Withdrawal</span>
+<h2>Confirm withdrawal request</h2>
+<div id="withdrawSummary" class="flow-summary"></div>
+<div class="warning-box">Confirm your account details carefully. Wrong details may delay or cancel your withdrawal.</div>
+<button class="secondary-link" onclick="showWithdrawStep(3)">Back</button>
+<button id="withdrawBtn" onclick="submitWithdrawal()">Submit Withdrawal</button>
+<div id="withdrawStatus" class="help"></div>
+</section>
+
+<section id="withdrawStep5" class="flow-panel hidden done-panel">
+<div id="withdrawDoneIcon" class="done-icon">DONE</div>
+<h2 id="withdrawWaitingTitle">Waiting for Admin Processing</h2>
+<p id="withdrawWaitingMessage">Your withdrawal request has been submitted.</p>
+<div id="withdrawLiveStatus" class="flow-summary"></div>
+<div id="withdrawRejectionReason" class="warning-box hidden"></div>
+<button onclick="goToPage('orders.html')">View History</button>
+<button class="secondary-link" onclick="goToPage('exchange.html')">Back to Dashboard</button>
+</section>
+
+<section class="flow-panel">
+<span class="flow-step-label">Withdrawal History</span>
+<div id="withdrawHistory">Loading...</div>
+</section>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260521moneyformat1"></script>
+</body>
+</html>
+
+
