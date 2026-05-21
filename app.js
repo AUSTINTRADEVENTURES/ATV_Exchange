@@ -1,4 +1,4 @@
-﻿// FIREBASE CONFIG
+// FIREBASE CONFIG
 const firebaseConfig = {
 apiKey: "AIzaSyBQiE6s-oBHwmFcBe_7ghcYb6hEZytTFXw",
 authDomain: "atvexchange.firebaseapp.com",
@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260521transferfix1";
+const appAssetVersion = "20260521successicons1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -165,6 +165,9 @@ return fallbackValue;
 }
 
 let pageLoaderVisibleAt = 0;
+let pageLoaderTimer = null;
+let pageLoaderShowing = false;
+let pageLoaderFirstShowDone = false;
 
 function ensurePageLoader(){
 let loader = document.getElementById("atvPageLoader");
@@ -186,42 +189,67 @@ if(retry) retry.onclick = ()=>window.location.reload();
 return loader;
 }
 
-function showPageLoader(message){
+function showPageLoader(message, options){
 if(document.getElementById("splashScreen") && getPageName() === "index.html") return;
 let loader = ensurePageLoader();
+let opts = options || {};
+let mode = opts.mode || (pageLoaderFirstShowDone ? "mini" : "full");
+if(pageLoaderShowing && !opts.force) return;
+pageLoaderShowing = true;
+pageLoaderFirstShowDone = true;
 pageLoaderVisibleAt = Date.now();
-loader.classList.remove("hidden", "failed");
+loader.classList.remove("hidden", "failed", "mini");
+if(mode === "mini") loader.classList.add("mini");
 let text = document.getElementById("atvLoaderText");
 let retry = document.getElementById("atvLoaderRetry");
 if(text) text.innerText = message || "Loading secure workspace...";
 if(retry) retry.classList.add("hidden");
+if(pageLoaderTimer) clearTimeout(pageLoaderTimer);
+pageLoaderTimer = setTimeout(()=>{
+appLog("Loader timeout fallback");
+hidePageLoader(true);
+}, opts.timeout || 6500);
 }
 
-function hidePageLoader(){
+function hidePageLoader(force){
 let loader = document.getElementById("atvPageLoader");
 if(!loader) return;
+if(pageLoaderTimer) clearTimeout(pageLoaderTimer);
 let elapsed = Date.now() - pageLoaderVisibleAt;
-let wait = Math.max(0, 220 - elapsed);
-setTimeout(()=>loader.classList.add("hidden"), wait);
+let wait = force ? 0 : Math.max(0, 160 - elapsed);
+setTimeout(()=>{
+loader.classList.add("hidden");
+pageLoaderShowing = false;
+}, wait);
 }
 
 function failPageLoader(message){
 let loader = ensurePageLoader();
+if(pageLoaderTimer) clearTimeout(pageLoaderTimer);
 loader.classList.remove("hidden");
 loader.classList.add("failed");
+pageLoaderShowing = true;
 let text = document.getElementById("atvLoaderText");
 let retry = document.getElementById("atvLoaderRetry");
 if(text) text.innerText = message || "Could not load this page. Check your connection and try again.";
 if(retry) retry.classList.remove("hidden");
+pageLoaderTimer = setTimeout(()=>hidePageLoader(true), 5500);
 }
 
-if(document.readyState === "loading"){
-document.addEventListener("DOMContentLoaded", ()=>showPageLoader());
-}else{
-showPageLoader();
+function setupAssetFallbacks(){
+document.querySelectorAll("img").forEach(img=>{
+if(img.dataset.atvFallbackReady) return;
+img.dataset.atvFallbackReady = "1";
+img.addEventListener("error", ()=>{
+let badge = document.createElement("span");
+badge.className = "asset-fallback-icon";
+badge.textContent = "ATV";
+badge.setAttribute("role", "img");
+badge.setAttribute("aria-label", img.alt || "ATV Exchange");
+img.replaceWith(badge);
+}, {once:true});
+});
 }
-
-window.addEventListener("beforeunload", ()=>showPageLoader("Opening page..."));
 
 function showLoginAfterSplash(delayMs){
 setTimeout(()=>{
@@ -267,7 +295,7 @@ currentUser = user;
 isAdmin = user ? adminEmails.map(email => email.toLowerCase()).includes((user.email || "").toLowerCase()) : false;
 
 let page = getPageName();
-showPageLoader("Loading "+(page.replace(".html","") || "page")+"...");
+showPageLoader("Loading "+(page.replace(".html","") || "page")+"...", {mode:"full"});
 appLog("Auth state changed", {signedIn: !!user, page});
 
 if(!user && page !== "index.html" && page !== "signup.html"){
@@ -310,6 +338,7 @@ showAdminButtons();
 updatePushDashboardCard();
 ensureSubPageBackButton(page);
 setupMoneyInputs();
+setupAssetFallbacks();
 loadBalanceVisibilityPreference();
 
 try{
@@ -351,6 +380,7 @@ if(page === "transaction-history.html") await requireAdmin(()=>loadAdminOrderLis
 setupForegroundMessaging();
 setupFirestoreNotificationPopups();
 setupNotificationBadgeListener();
+setupAssetFallbacks();
 trackLoginDevice();
 appLog("Page route finished", page);
 hidePageLoader();
@@ -371,7 +401,7 @@ return page || "index.html";
 }
 
 function goToPage(page){
-showPageLoader("Opening page...");
+showPageLoader("Opening page...", {mode:"mini", timeout:3500});
 window.location.href = page;
 }
 
@@ -823,7 +853,7 @@ let priority = item.priority || "medium";
 return `
 <div class="notification-item ${notificationIsReadByMe(item) ? "" : "unread"} priority-${priority}" data-id="${escapeHtml(item.id)}" data-collection="${escapeHtml(target.collection)}" data-target-id="${escapeHtml(target.id)}" data-link="${escapeHtml(target.link)}">
 <button class="notification-open" type="button">
-<span class="notification-meta">${group.toUpperCase()} â€¢ ${priority}</span>
+<span class="notification-meta">${group.toUpperCase()} &bull; ${priority}</span>
 <b>${escapeHtml(item.title || "Notification")}</b>
 <p>${escapeHtml(item.message || item.body || "")}</p>
 <small>${escapeHtml(item.createdAt || "")}</small>
@@ -1013,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521transferfix1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521successicons1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1099,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521transferfix1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521successicons1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -3142,7 +3172,7 @@ let priority = item.priority || "medium";
 return `
 <div class="notification-item ${notificationIsReadByMe(item) ? "" : "unread"} priority-${priority}" data-id="${escapeHtml(item.id)}" data-collection="${escapeHtml(target.collection)}" data-target-id="${escapeHtml(target.id)}" data-link="${escapeHtml(target.link)}">
 <button class="notification-open" type="button">
-<span class="notification-meta">${notificationGroup(item).toUpperCase()} â€¢ ${priority}</span>
+<span class="notification-meta">${notificationGroup(item).toUpperCase()} &bull; ${priority}</span>
 <b>${escapeHtml(item.title || "Notification")}</b>
 <p>${escapeHtml(item.message || item.body || "")}</p>
 <small>${escapeHtml(item.createdAt || "")}</small>
@@ -5922,8 +5952,8 @@ return `
 
 <div class="receipt-mini-grid">${heroRows.filter(Boolean).slice(0, 4).join("")}</div>
 ${receiptButton}
-${orderDetailSection("Payment Details", "â€¢", paymentRows)}
-${orderDetailSection("Customer Details", "â€¢", customerRows)}
+${orderDetailSection("Payment Details", "&bull;", paymentRows)}
+${orderDetailSection("Customer Details", "&bull;", customerRows)}
 
 <details class="receipt-more receipt-compact-details">
 <summary>Uploaded Receipt / Proof</summary>
@@ -7438,7 +7468,7 @@ let html = "";
 data.forEach(thread=>{
 html += `
 <button class="admin-list-row" onclick="openSupportThread('${thread.id}')">
-<span class="admin-list-rank">ðŸ’¬</span>
+<span class="admin-list-rank">💬</span>
 <span>
 <b>${thread.customerEmail || thread.customerId || "Customer"}</b>
 <small>${thread.id} - ${thread.updatedAt || ""}</small>
@@ -7878,7 +7908,7 @@ announcementsList.innerHTML = rows.map(item=>`
 <span>
 <b>${escapeHtml(item.title || "Announcement")}</b>
 <small>${escapeHtml(item.message || "")}</small>
-<em>${escapeHtml((item.type || "system")+" â€¢ "+(item.priority || "medium")+" â€¢ "+(item.createdAt || ""))}</em>
+<em>${escapeHtml((item.type || "system")+" - "+(item.priority || "medium")+" - "+(item.createdAt || ""))}</em>
 </span>
 <span class="admin-status-pill">${item.pushSent ? "Push sent" : "Saved"}</span>
 </div>
@@ -7975,10 +8005,11 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260521transferfix1")
+navigator.serviceWorker.register("./sw.js?v=20260521successicons1")
 .then(registration => registration.update())
 .catch(() => {});
 }
+
 
 
 

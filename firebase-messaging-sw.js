@@ -1,4 +1,6 @@
-﻿importScripts("./sw.js?v=20260521loader1");
+importScripts("./sw.js?v=20260521successicons1");
+
+
 
 
 
