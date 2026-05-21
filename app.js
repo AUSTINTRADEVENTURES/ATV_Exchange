@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260521loader1";
+const appAssetVersion = "20260521transferfix1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1013,7 +1013,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521loader1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521transferfix1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1099,7 +1099,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521loader1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521transferfix1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4119,11 +4119,19 @@ appLog("Public user rebuild skipped", error.message);
 async function findRecipientUser(lookupValue){
 let lookup = lookupValue.trim();
 if(!lookup) return null;
-if(!/^[0-9]{9,10}$/.test(lookup)){
-throw new Error("Enter the recipient 9-10 digit ATV UID");
-}
 let lookupLower = lookup.toLowerCase();
 appLog("Searching recipient", {lookup});
+
+if(!/^[0-9]{9,10}$/.test(lookup)){
+let username = lookupLower.replace(/^@/, "");
+if(!/^[a-z0-9._-]{3,30}$/.test(username)){
+throw new Error("Enter a valid ATV UID or username");
+}
+let usernameSnap = await db.collection("publicUsers").where("usernameLower","==",username).limit(1).get();
+let usernameResult = usernameSnap.empty ? null : {id:usernameSnap.docs[0].id, ...usernameSnap.docs[0].data()};
+appLog("Recipient username search result", usernameResult ? {id:usernameResult.id, username:usernameResult.username} : null);
+return usernameResult;
+}
 
 let uidDoc = await db.collection("transferUIDs").doc(lookup).get();
 if(uidDoc.exists){
@@ -4161,7 +4169,7 @@ return;
 
 if(!amountValue || amountValue <= 0) return alert("Enter a valid amount");
 if(!recipient){
-let message = "Recipient UID not found. Check the 9-10 digit ATV UID. If this is an old account, ask the recipient to open Profile once so their UID activates.";
+let message = "Recipient not found. Check the ATV UID or username. If this is an old account, ask the recipient to open Profile once so their UID activates.";
 transferStatus.innerText = message;
 return alert(message);
 }
@@ -4186,10 +4194,13 @@ walletActionBusy = true;
 setLoading("transferBtn", true, "Sending...");
 
 let requestId = createRequestId("TRF");
+let senderProfile = currentProfile || await getCustomerProfile() || {};
+let senderName = profileFullName(senderProfile) || senderProfile.username || currentUser.email || "ATV user";
 let payload = {
 requestId,
 senderId: currentUser.uid,
 senderEmail: currentUser.email,
+senderName,
 recipientId: recipient.id,
 recipientName,
 recipientUsername,
@@ -4209,39 +4220,44 @@ let senderNotificationRef = db.collection("notifications").doc();
 let recipientNotificationRef = db.collection("notifications").doc();
 let field = currency === "NGN" ? "ngn" : "ghs";
 
-try{
 await db.runTransaction(async transaction=>{
 let senderBalanceDoc = await transaction.get(senderBalanceRef);
 let currentBalance = senderBalanceDoc.exists ? Number((senderBalanceDoc.data() || {})[field] || 0) : 0;
 if(currentBalance < amountValue) throw new Error("Insufficient "+currency+" balance");
 
-let senderUpdate = {updatedAt:new Date().toLocaleString()};
-let recipientUpdate = {updatedAt:new Date().toLocaleString()};
+let now = new Date().toLocaleString();
+let senderUpdate = {updatedAt:now, lastTransferId:requestId, lastTransferDirection:"sent"};
+let recipientUpdate = {updatedAt:now, lastTransferId:requestId, lastTransferDirection:"received"};
 senderUpdate[field] = firebase.firestore.FieldValue.increment(-amountValue);
 recipientUpdate[field] = firebase.firestore.FieldValue.increment(amountValue);
 
-transaction.set(senderBalanceRef, senderUpdate, {merge:true});
-transaction.set(recipientBalanceRef, recipientUpdate, {merge:true});
 transaction.set(walletRef, {
 ...payload,
 type:"internal-transfer",
 status:"Successful",
-createdAt: new Date().toLocaleString(),
-updatedAt: new Date().toLocaleString()
+createdAt: now,
+updatedAt: now
 });
+transaction.set(senderBalanceRef, senderUpdate, {merge:true});
+transaction.set(recipientBalanceRef, recipientUpdate, {merge:true});
 transaction.set(senderTxRef, {
 orderID: requestId,
 type: "internal-transfer",
 direction: "sent",
 customerId: currentUser.uid,
+senderId: currentUser.uid,
+senderName,
 customerEmail: currentUser.email,
 recipientId: recipient.id,
 recipientName,
+recipientUsername,
+recipientTransferUid: recipientUid,
 currency,
 amount: amountValue,
 converted: amountValue,
 status: "Completed",
-date: new Date().toLocaleString()
+date: now,
+createdAt: now
 });
 transaction.set(recipientTxRef, {
 orderID: requestId,
@@ -4250,12 +4266,17 @@ direction: "received",
 customerId: recipient.id,
 senderId: currentUser.uid,
 senderEmail: currentUser.email,
-senderName: currentUser.email,
+senderName,
+recipientId: recipient.id,
+recipientName,
+recipientUsername,
+recipientTransferUid: recipientUid,
 currency,
 amount: amountValue,
 converted: amountValue,
 status: "Completed",
-date: new Date().toLocaleString()
+date: now,
+createdAt: now
 });
 transaction.set(senderNotificationRef, {
 forUserId: currentUser.uid,
@@ -4263,95 +4284,24 @@ type: "internal-transfer",
 title: "Transfer Sent",
 message: "You sent "+currency+" "+format(amountValue)+" to "+recipientName+".",
 transactionId: requestId,
-createdAt: new Date().toLocaleString(),
+createdAt: now,
 read: false
 });
 transaction.set(recipientNotificationRef, {
 forUserId: recipient.id,
 type: "internal-transfer",
 title: "Transfer Received",
-message: "You received "+currency+" "+format(amountValue)+" from "+(currentUser.email || "a customer")+".",
+message: "You received "+currency+" "+format(amountValue)+" from "+senderName+".",
 transactionId: requestId,
-createdAt: new Date().toLocaleString(),
+createdAt: now,
 read: false
 });
 });
-}catch(transactionError){
-if(!String(transactionError.message || "").toLowerCase().includes("permission")){
-throw transactionError;
-}
-
-let balance = await getCustomerBalance(currentUser.uid);
-if(Number(balance[field] || 0) < amountValue) throw new Error("Insufficient "+currency+" balance");
-
-let batch = db.batch();
-let senderUpdate = {updatedAt:new Date().toLocaleString()};
-let recipientUpdate = {updatedAt:new Date().toLocaleString()};
-senderUpdate[field] = firebase.firestore.FieldValue.increment(-amountValue);
-recipientUpdate[field] = firebase.firestore.FieldValue.increment(amountValue);
-
-batch.set(senderBalanceRef, senderUpdate, {merge:true});
-batch.set(recipientBalanceRef, recipientUpdate, {merge:true});
-batch.set(walletRef, {
-...payload,
-type:"internal-transfer",
-status:"Successful",
-createdAt: new Date().toLocaleString(),
-updatedAt: new Date().toLocaleString()
-});
-batch.set(senderTxRef, {
-orderID: requestId,
-type: "internal-transfer",
-direction: "sent",
-customerId: currentUser.uid,
-customerEmail: currentUser.email,
-recipientId: recipient.id,
-recipientName,
-currency,
-amount: amountValue,
-converted: amountValue,
-status: "Completed",
-date: new Date().toLocaleString()
-});
-batch.set(recipientTxRef, {
-orderID: requestId,
-type: "internal-transfer",
-direction: "received",
-customerId: recipient.id,
-senderId: currentUser.uid,
-senderEmail: currentUser.email,
-senderName: currentUser.email,
-currency,
-amount: amountValue,
-converted: amountValue,
-status: "Completed",
-date: new Date().toLocaleString()
-});
-batch.set(senderNotificationRef, {
-forUserId: currentUser.uid,
-type: "internal-transfer",
-title: "Transfer Sent",
-message: "You sent "+currency+" "+format(amountValue)+" to "+recipientName+".",
-transactionId: requestId,
-createdAt: new Date().toLocaleString(),
-read: false
-});
-batch.set(recipientNotificationRef, {
-forUserId: recipient.id,
-type: "internal-transfer",
-title: "Transfer Received",
-message: "You received "+currency+" "+format(amountValue)+" from "+(currentUser.email || "a customer")+".",
-transactionId: requestId,
-createdAt: new Date().toLocaleString(),
-read: false
-});
-await batch.commit();
-}
 
 transferStatus.innerText = "Transfer successful.";
 showToast("Transfer successful");
-await notifyBackendUser(recipient.id, "Transfer Received", "You received "+currency+" "+format(amountValue)+" from "+(currentUser.email || "ATV user")+".", orderDetailUrl("walletRequests", requestId), {requestId, transactionId:requestId, type:"internal-transfer", currency, amount:amountValue});
-await notifyAdmin("internal-transfer", "Internal transfer completed", (currentUser.email || "A customer")+" sent "+currency+" "+format(amountValue)+" to "+recipientName+".", orderDetailUrl("walletRequests", requestId), {requestId, senderId:currentUser.uid, recipientId:recipient.id, currency, amount:amountValue}, "medium");
+await notifyBackendUser(recipient.id, "Transfer Received", "You received "+currency+" "+format(amountValue)+" from "+senderName+".", orderDetailUrl("walletRequests", requestId), {requestId, transactionId:requestId, type:"internal-transfer", currency, amount:amountValue});
+await notifyAdmin("internal-transfer", "Internal transfer completed", senderName+" sent "+currency+" "+format(amountValue)+" to "+recipientName+".", orderDetailUrl("walletRequests", requestId), {requestId, senderId:currentUser.uid, recipientId:recipient.id, currency, amount:amountValue}, "medium");
 await notifyLargeTransactionIfNeeded(currency, amountValue, orderDetailUrl("walletRequests", requestId), {requestId, type:"internal-transfer"});
 openTransactionSuccess({
 title: "Transfer Successful",
@@ -4371,7 +4321,9 @@ details: [
 }catch(error){
 let message = error.message || "";
 if(message.toLowerCase().includes("permission")){
-message = "Permission blocked the transfer. Upload app.js and publish the latest Firestore rules, then reload the app.";
+message = "Transfer failed because of permission/rules. Upload app.js, publish the latest Firestore rules, then reload the app.";
+}else if(message.toLowerCase().includes("insufficient")){
+message = "Insufficient balance.";
 }
 transferStatus.innerText = "Could not send money: "+message;
 alert("Could not send money: "+message);
@@ -8023,10 +7975,11 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260521loader1")
+navigator.serviceWorker.register("./sw.js?v=20260521transferfix1")
 .then(registration => registration.update())
 .catch(() => {});
 }
+
 
 
 
