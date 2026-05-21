@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="./styles.css?v=20260521nairafix1">
+<link rel="stylesheet" href="./styles.css?v=20260521loader1">
 </head>
 
 <body>
@@ -78,9 +78,11 @@
 </div>
 <div class="balance-card-head">
 <p id="balanceCardLabel">GHS Available Balance</p>
-<button id="balanceToggleBtn" class="eye-btn" onclick="toggleBalance()" aria-label="Hide balance" title="Hide balance">ðŸ‘</button>
 </div>
+<div class="balance-amount-row">
 <h2 id="homeBalance" data-value="GHS 0.00">GHS 0.00</h2>
+<button id="balanceToggleBtn" class="eye-btn" onclick="toggleBalance()" aria-label="Hide balance" title="Hide balance">&#128065;</button>
+</div>
 <div class="balance-meta">
 <div><span>Account Level</span><b id="homeTierBadge">Basic</b><small id="homeVipBadge" class="vip-badge hidden">VIP1</small></div>
 <div><span>Account Status</span><b id="homeKycBadge" class="badge pending">KYC pending</b></div>
@@ -105,7 +107,7 @@
 <button onclick="goToPage('withdraw.html')"><b>Withdraw</b><span>Cash out</span></button>
 </section>
 
-<div id="enablePushCard" class="card push-card">
+<div id="enablePushCard" class="card push-card hidden">
 <div>
 <h3>Enable Notifications</h3>
 <p class="help">Get wallet, order, KYC, support, and transfer alerts on this device.</p>
@@ -193,9 +195,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js"></script>
-<script src="./app.js?v=20260521nairafix1"></script>
+<script src="./app.js?v=20260521loader1"></script>
 </body>
 </html>
+
+
 
 
 

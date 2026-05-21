@@ -1,3 +1,6 @@
-﻿importScripts("./sw.js?v=20260521moneyformat1");
+﻿importScripts("./sw.js?v=20260521loader1");
+
+
+
 
 

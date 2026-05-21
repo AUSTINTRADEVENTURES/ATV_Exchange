@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260521nairafix1";
+const appAssetVersion = "20260521loader1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -164,10 +164,70 @@ return fallbackValue;
 ]);
 }
 
+let pageLoaderVisibleAt = 0;
+
+function ensurePageLoader(){
+let loader = document.getElementById("atvPageLoader");
+if(loader) return loader;
+loader = document.createElement("div");
+loader.id = "atvPageLoader";
+loader.className = "atv-page-loader";
+loader.innerHTML = `
+<div class="atv-loader-card">
+<div class="atv-loader-logo">ATV<span>EXCHANGE</span></div>
+<div class="atv-loader-ring"></div>
+<p id="atvLoaderText">Loading secure workspace...</p>
+<button id="atvLoaderRetry" class="hidden" type="button">Retry</button>
+</div>
+`;
+document.body.appendChild(loader);
+let retry = document.getElementById("atvLoaderRetry");
+if(retry) retry.onclick = ()=>window.location.reload();
+return loader;
+}
+
+function showPageLoader(message){
+if(document.getElementById("splashScreen") && getPageName() === "index.html") return;
+let loader = ensurePageLoader();
+pageLoaderVisibleAt = Date.now();
+loader.classList.remove("hidden", "failed");
+let text = document.getElementById("atvLoaderText");
+let retry = document.getElementById("atvLoaderRetry");
+if(text) text.innerText = message || "Loading secure workspace...";
+if(retry) retry.classList.add("hidden");
+}
+
+function hidePageLoader(){
+let loader = document.getElementById("atvPageLoader");
+if(!loader) return;
+let elapsed = Date.now() - pageLoaderVisibleAt;
+let wait = Math.max(0, 220 - elapsed);
+setTimeout(()=>loader.classList.add("hidden"), wait);
+}
+
+function failPageLoader(message){
+let loader = ensurePageLoader();
+loader.classList.remove("hidden");
+loader.classList.add("failed");
+let text = document.getElementById("atvLoaderText");
+let retry = document.getElementById("atvLoaderRetry");
+if(text) text.innerText = message || "Could not load this page. Check your connection and try again.";
+if(retry) retry.classList.remove("hidden");
+}
+
+if(document.readyState === "loading"){
+document.addEventListener("DOMContentLoaded", ()=>showPageLoader());
+}else{
+showPageLoader();
+}
+
+window.addEventListener("beforeunload", ()=>showPageLoader("Opening page..."));
+
 function showLoginAfterSplash(delayMs){
 setTimeout(()=>{
 if(document.getElementById("splashScreen")) splashScreen.classList.add("hidden");
 if(document.getElementById("loginCard")) loginCard.classList.remove("hidden");
+hidePageLoader();
 appLog("Login shown after splash");
 }, delayMs || 900);
 }
@@ -207,6 +267,7 @@ currentUser = user;
 isAdmin = user ? adminEmails.map(email => email.toLowerCase()).includes((user.email || "").toLowerCase()) : false;
 
 let page = getPageName();
+showPageLoader("Loading "+(page.replace(".html","") || "page")+"...");
 appLog("Auth state changed", {signedIn: !!user, page});
 
 if(!user && page !== "index.html" && page !== "signup.html"){
@@ -249,6 +310,7 @@ showAdminButtons();
 updatePushDashboardCard();
 ensureSubPageBackButton(page);
 setupMoneyInputs();
+loadBalanceVisibilityPreference();
 
 try{
 if(page === "exchange.html") await withTimeout(loadHomePage(), 5000, null, "home page");
@@ -271,30 +333,34 @@ if(page === "orders.html") loadMyOrdersPage();
 if(page === "order-detail.html") await withTimeout(loadOrderDetailPage(), 5000, null, "order detail page");
 if(page === "success.html") loadSuccessPage();
 if(page === "support.html") loadSupportPage();
-if(page === "dashboard.html") requireAdmin(loadDashboard);
-if(page === "profit.html") requireAdmin(loadProfitDashboard);
-if(page === "customers.html") requireAdmin(loadCustomersPage);
-if(page === "kyc-admin.html") requireAdmin(loadKycReviewPage);
-if(page === "rates.html") requireAdmin(loadRatesPage);
-if(page === "announcements.html") requireAdmin(loadAnnouncementsPage);
-if(page === "support-admin.html") requireAdmin(loadSupportAdminPage);
-if(page === "support-chat-admin.html") requireAdmin(loadSupportAdminChatPage);
-if(page === "deposit-orders.html") requireAdmin(()=>loadAdminOrderListPage("deposits"));
-if(page === "convert-orders.html") requireAdmin(()=>loadAdminOrderListPage("converts"));
-if(page === "swap-orders.html") requireAdmin(()=>loadAdminOrderListPage("swaps"));
-if(page === "withdrawal-orders.html") requireAdmin(()=>loadAdminOrderListPage("withdrawals"));
-if(page === "utility-bill-approvals.html") requireAdmin(()=>loadAdminOrderListPage("utility"));
-if(page === "admin-notifications.html") requireAdmin(loadAdminNotificationsPage);
-if(page === "transaction-history.html") requireAdmin(()=>loadAdminOrderListPage("history"));
+if(page === "dashboard.html") await requireAdmin(loadDashboard);
+if(page === "profit.html") await requireAdmin(loadProfitDashboard);
+if(page === "customers.html") await requireAdmin(loadCustomersPage);
+if(page === "kyc-admin.html") await requireAdmin(loadKycReviewPage);
+if(page === "rates.html") await requireAdmin(loadRatesPage);
+if(page === "announcements.html") await requireAdmin(loadAnnouncementsPage);
+if(page === "support-admin.html") await requireAdmin(loadSupportAdminPage);
+if(page === "support-chat-admin.html") await requireAdmin(loadSupportAdminChatPage);
+if(page === "deposit-orders.html") await requireAdmin(()=>loadAdminOrderListPage("deposits"));
+if(page === "convert-orders.html") await requireAdmin(()=>loadAdminOrderListPage("converts"));
+if(page === "swap-orders.html") await requireAdmin(()=>loadAdminOrderListPage("swaps"));
+if(page === "withdrawal-orders.html") await requireAdmin(()=>loadAdminOrderListPage("withdrawals"));
+if(page === "utility-bill-approvals.html") await requireAdmin(()=>loadAdminOrderListPage("utility"));
+if(page === "admin-notifications.html") await requireAdmin(loadAdminNotificationsPage);
+if(page === "transaction-history.html") await requireAdmin(()=>loadAdminOrderListPage("history"));
 setupForegroundMessaging();
 setupFirestoreNotificationPopups();
 setupNotificationBadgeListener();
 trackLoginDevice();
 appLog("Page route finished", page);
+hidePageLoader();
 }catch(error){
 appLog("Page route failed", error.message);
 if(page === "exchange.html"){
 renderDefaultHomeState(error.message);
+hidePageLoader();
+}else{
+failPageLoader("Could not load this page: "+error.message);
 }
 }
 });
@@ -305,6 +371,7 @@ return page || "index.html";
 }
 
 function goToPage(page){
+showPageLoader("Opening page...");
 window.location.href = page;
 }
 
@@ -913,10 +980,8 @@ updatePushDashboardCard();
 
 function updatePushDashboardCard(){
 let card = document.getElementById("enablePushCard");
-if(!card || !currentUser) return;
-let everEnabled = localStorage.getItem(pushLocalKey("everEnabled")) === "1";
-let enabled = localStorage.getItem(pushLocalKey("enabled")) === "1";
-card.classList.toggle("hidden", everEnabled || enabled);
+if(!card) return;
+card.classList.add("hidden");
 }
 
 async function hydratePushStatusFromFirestore(){
@@ -933,6 +998,9 @@ localStorage.setItem(pushLocalKey("everEnabled"), "1");
 localStorage.setItem(pushLocalKey("enabled"), "1");
 refreshPushServiceWorkerRegistration();
 }
+if("Notification" in window && Notification.permission === "granted"){
+localStorage.setItem(pushLocalKey("everEnabled"), "1");
+}
 updatePushDashboardCard();
 }catch(error){
 appLog("Push status hydrate skipped", error.message);
@@ -945,7 +1013,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521nairafix1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521loader1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1031,7 +1099,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521nairafix1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521loader1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -1059,6 +1127,7 @@ updatedAt: new Date().toLocaleString()
 },{merge:true});
 
 markPushEnabledLocally(token);
+updatePushDashboardCard();
 await sendNotificationSelfTest(registration);
 setupFirestoreNotificationPopups();
 showToast("Notifications enabled");
@@ -1135,7 +1204,11 @@ notificationSoundToggle.checked = prefs.sound !== false;
 notificationVibrationToggle.checked = prefs.vibration !== false;
 announcementAlertsToggle.checked = prefs.announcements !== false;
 rateAlertsToggle.checked = prefs.rateUpdates !== false;
-setPushStatus(prefs.pushEnabled ? "Notifications are enabled on this device." : "Notifications are disabled on this device.");
+let permissionText = "Notification" in window ? Notification.permission : "unsupported";
+let statusText = prefs.pushEnabled ? "Notifications are enabled on this device." : "Notifications are disabled on this device.";
+if(permissionText === "denied") statusText = "Browser permission is denied. Enable notifications from your browser or phone app settings.";
+if(permissionText === "default") statusText += " Browser permission has not been granted yet.";
+setPushStatus(statusText+" Permission: "+permissionText+".");
 updatePushDashboardCard();
 }
 
@@ -1173,6 +1246,7 @@ await enablePushNotifications();
 }else{
 await disablePushNotifications();
 }
+updatePushDashboardCard();
 }
 
 async function disablePushNotifications(){
@@ -1628,8 +1702,21 @@ link,
 };
 }
 
+function balancePreferenceKey(){
+return currentUser ? "atvBalanceHidden_"+currentUser.uid : "atvBalanceHidden_guest";
+}
+
+function loadBalanceVisibilityPreference(){
+balancesHidden = localStorage.getItem(balancePreferenceKey()) === "1";
+}
+
+function hiddenBalanceText(){
+return "****";
+}
+
 function toggleBalance(){
 balancesHidden = !balancesHidden;
+localStorage.setItem(balancePreferenceKey(), balancesHidden ? "1" : "0");
 updateBalanceVisibility();
 }
 
@@ -1638,7 +1725,7 @@ function updateBalanceVisibility(){
 let el = document.getElementById(id);
 if(!el) return;
 if(!el.dataset.value) el.dataset.value = el.innerText;
-el.innerText = balancesHidden ? "******" : el.dataset.value;
+el.innerText = balancesHidden ? hiddenBalanceText() : el.dataset.value;
 });
 renderActiveBalance();
 }
@@ -1869,14 +1956,14 @@ idTypeSelect.value = selectedIdType;
 }
 }
 
-function requireAdmin(callback){
+async function requireAdmin(callback){
 if(!isAdmin){
 alert("Admin only");
 window.location.href = "exchange.html";
 return;
 }
 
-callback();
+return await callback();
 }
 
 function login(){
@@ -2591,12 +2678,12 @@ let ngnText = "\u20A6"+format(ngnBalance);
 
 if(document.getElementById("homeGhsBalance")){
 homeGhsBalance.dataset.value = ghsText;
-homeGhsBalance.innerText = balancesHidden ? "******" : ghsText;
+homeGhsBalance.innerText = balancesHidden ? hiddenBalanceText() : ghsText;
 }
 
 if(document.getElementById("homeNgnBalance")){
 homeNgnBalance.dataset.value = ngnText;
-homeNgnBalance.innerText = balancesHidden ? "******" : ngnText;
+homeNgnBalance.innerText = balancesHidden ? hiddenBalanceText() : ngnText;
 }
 
 renderActiveBalance();
@@ -2625,9 +2712,9 @@ if(document.getElementById("ngnBalanceBox")) ngnBalanceBox.classList.add("hidden
 }
 
 homeBalance.dataset.value = mainText;
-homeBalance.innerText = balancesHidden ? "******" : mainText;
+homeBalance.innerText = balancesHidden ? hiddenBalanceText() : mainText;
 if(document.getElementById("balanceToggleBtn")){
-balanceToggleBtn.innerText = "ðŸ‘";
+balanceToggleBtn.innerHTML = "&#128065;";
 balanceToggleBtn.setAttribute("aria-label", balancesHidden ? "Reveal balance" : "Hide balance");
 balanceToggleBtn.setAttribute("title", balancesHidden ? "Reveal balance" : "Hide balance");
 balanceToggleBtn.classList.toggle("is-hidden", balancesHidden);
@@ -7936,10 +8023,12 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260521nairafix1")
+navigator.serviceWorker.register("./sw.js?v=20260521loader1")
 .then(registration => registration.update())
 .catch(() => {});
 }
+
+
 
 
 
