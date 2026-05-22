@@ -1,0 +1,478 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email in [
+          "Ezeaugustinemmaduabuchi@gmail.com",
+          "ezeaugustinemmaduabuchi@gmail.com"
+        ];
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function validOrderStatus(status) {
+      return status in [
+        "Created / Awaiting Payment",
+        "Paid / Awaiting Settlement Account",
+        "Submitted / Awaiting Admin Approval",
+        "Settlement In Progress",
+        "Settlement Processing",
+        "Settlement Rejected",
+        "Cancelled / Payment Time Expired",
+        "Dispute Submitted / Waiting for Support",
+        "Pending",
+        "Paid",
+        "Approved",
+        "Processing",
+        "Completed",
+        "Rejected"
+      ];
+    }
+
+    function validDepositStatus(status) {
+      return status in [
+        "created",
+        "payment submitted",
+        "verification",
+        "processing",
+        "credited",
+        "approved",
+        "pending",
+        "rejected",
+        "expired"
+      ];
+    }
+
+    function transferAfter() {
+      return getAfter(/databases/$(database)/documents/walletRequests/$(request.resource.data.lastTransferId)).data;
+    }
+
+    function transferOrderAfter(transferId) {
+      return getAfter(/databases/$(database)/documents/walletRequests/$(transferId)).data;
+    }
+
+    function userCanTransfer(userId) {
+      let user = get(/databases/$(database)/documents/users/$(userId)).data;
+      return signedIn()
+        && userId == request.auth.uid
+        && !(user.accountStatus in ["banned", "ban", "Banned", "BAN", "restricted", "suspended", "Restricted", "Suspended"])
+        && user.banned != true
+        && user.transferRestricted != true
+        && user.restrictedFromTransfer != true;
+    }
+
+    function balanceTransferKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(["ghs", "ngn", "updatedAt", "lastTransferId", "lastTransferDirection"]);
+    }
+
+    function validSenderTransferUpdate(userId, currency) {
+      return signedIn()
+        && isOwner(userId)
+        && userCanTransfer(userId)
+        && balanceTransferKeys()
+        && request.resource.data.lastTransferDirection == "sent"
+        && transferAfter().type == "internal-transfer"
+        && transferAfter().status == "Successful"
+        && transferAfter().senderId == request.auth.uid
+        && transferAfter().recipientId is string
+        && transferAfter().recipientId != request.auth.uid
+        && exists(/databases/$(database)/documents/users/$(transferAfter().recipientId))
+        && transferAfter().currency == currency
+        && transferAfter().amount is number
+        && transferAfter().amount > 0
+        && (
+          currency == "GHS"
+            ? resource.data.ghs is number
+              && request.resource.data.ghs == resource.data.ghs - transferAfter().amount
+              && request.resource.data.ghs >= 0
+              && request.resource.data.ngn == resource.data.ngn
+            : resource.data.ngn is number
+              && request.resource.data.ngn == resource.data.ngn - transferAfter().amount
+              && request.resource.data.ngn >= 0
+              && request.resource.data.ghs == resource.data.ghs
+        );
+    }
+
+    function validRecipientTransferUpdate(userId, currency) {
+      return signedIn()
+        && userId != request.auth.uid
+        && balanceTransferKeys()
+        && request.resource.data.lastTransferDirection == "received"
+        && transferAfter().type == "internal-transfer"
+        && transferAfter().status == "Successful"
+        && transferAfter().senderId == request.auth.uid
+        && userCanTransfer(request.auth.uid)
+        && transferAfter().recipientId == userId
+        && exists(/databases/$(database)/documents/users/$(userId))
+        && transferAfter().currency == currency
+        && transferAfter().amount is number
+        && transferAfter().amount > 0
+        && (
+          currency == "GHS"
+            ? request.resource.data.ghs == resource.data.ghs + transferAfter().amount
+              && request.resource.data.ngn == resource.data.ngn
+            : request.resource.data.ngn == resource.data.ngn + transferAfter().amount
+              && request.resource.data.ghs == resource.data.ghs
+        );
+    }
+
+    function validRecipientTransferCreate(userId, currency) {
+      return signedIn()
+        && userId != request.auth.uid
+        && request.resource.data.keys().hasOnly(["ghs", "ngn", "updatedAt", "lastTransferId", "lastTransferDirection"])
+        && request.resource.data.lastTransferDirection == "received"
+        && transferAfter().type == "internal-transfer"
+        && transferAfter().status == "Successful"
+        && transferAfter().senderId == request.auth.uid
+        && userCanTransfer(request.auth.uid)
+        && transferAfter().recipientId == userId
+        && exists(/databases/$(database)/documents/users/$(userId))
+        && transferAfter().currency == currency
+        && transferAfter().amount is number
+        && transferAfter().amount > 0
+        && (
+          currency == "GHS"
+            ? request.resource.data.ghs == transferAfter().amount
+              && (!request.resource.data.keys().hasAny(["ngn"]) || request.resource.data.ngn == 0)
+            : request.resource.data.ngn == transferAfter().amount
+              && (!request.resource.data.keys().hasAny(["ghs"]) || request.resource.data.ghs == 0)
+        );
+    }
+
+    function validOwnerWalletUpdate(userId) {
+      return signedIn()
+        && isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["ghs", "ngn", "updatedAt", "lastTransferId", "lastTransferDirection"])
+        && (!request.resource.data.keys().hasAny(["ghs"]) || request.resource.data.ghs >= 0)
+        && (!request.resource.data.keys().hasAny(["ngn"]) || request.resource.data.ngn >= 0);
+    }
+
+    function validInternalTransferNotification() {
+      return signedIn()
+        && request.resource.data.type == "internal-transfer"
+        && request.resource.data.transactionId is string
+        && transferOrderAfter(request.resource.data.transactionId).type == "internal-transfer"
+        && transferOrderAfter(request.resource.data.transactionId).status == "Successful"
+        && transferOrderAfter(request.resource.data.transactionId).senderId == request.auth.uid
+        && (
+          request.resource.data.forUserId == request.auth.uid
+          || request.resource.data.forUserId == transferOrderAfter(request.resource.data.transactionId).recipientId
+        );
+    }
+
+    match /users/{userId} {
+      allow create: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
+
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny([
+            "kycApproved",
+            "kycLocked",
+            "kycReviewedBy",
+            "kycReviewedAt",
+            "kycApprovedAt",
+            "kycRejectedAt",
+            "kycUnlockedBy",
+            "kycUnlockedAt",
+            "kycRejectionReason",
+            "kycUnlockReason",
+            "suspensionReason",
+            "accountStatus"
+          ])
+        && (
+          !resource.data.keys().hasAny(["transferUid"])
+          || !request.resource.data.diff(resource.data).affectedKeys().hasAny(["transferUid", "atvUid", "transferUidLocked"])
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(["kycStatus"])
+          || (
+            request.resource.data.kycStatus in ["Not submitted", "Submitted"]
+            && resource.data.kycApproved != true
+            && resource.data.kycLocked != true
+          )
+        );
+
+      allow update: if isAdmin();
+      allow delete: if false;
+
+      match /kycHistory/{historyId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isAdmin();
+        allow update, delete: if false;
+      }
+
+      match /fcmTokens/{tokenId} {
+        allow create, update, delete: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    match /balances/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAdmin()
+        || validRecipientTransferCreate(userId, "GHS")
+        || validRecipientTransferCreate(userId, "NGN");
+      allow update: if isAdmin()
+        || validSenderTransferUpdate(userId, "GHS")
+        || validSenderTransferUpdate(userId, "NGN")
+        || validRecipientTransferUpdate(userId, "GHS")
+        || validRecipientTransferUpdate(userId, "NGN")
+        || validOwnerWalletUpdate(userId);
+      allow delete: if false;
+    }
+
+    match /publicUsers/{userId} {
+      allow read: if signedIn();
+      allow create: if isOwner(userId) || isAdmin();
+      allow update: if isAdmin()
+        || (
+          isOwner(userId)
+          && (
+            !resource.data.keys().hasAny(["transferUid"])
+            || !request.resource.data.diff(resource.data).affectedKeys().hasAny(["transferUid", "transferUidLower"])
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /transferUIDs/{transferUid} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && (request.resource.data.userId == request.auth.uid || isAdmin())
+        && request.resource.data.uid == transferUid
+        && transferUid.matches("^[0-9]{9,10}$")
+        && !exists(/databases/$(database)/documents/transferUIDs/$(transferUid));
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /walletRequests/{requestId} {
+      allow create: if signedIn()
+        && (
+          request.resource.data.customerId == request.auth.uid
+          || request.resource.data.senderId == request.auth.uid
+        )
+        && request.resource.data.status in ["Pending", "Successful"]
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.currency in ["GHS", "NGN"]
+        && request.resource.data.type in ["deposit", "withdraw", "internal-transfer"]
+        && (
+          request.resource.data.type != "internal-transfer"
+          || (
+            request.resource.data.senderId == request.auth.uid
+            && request.resource.data.recipientId is string
+            && request.resource.data.recipientId != request.auth.uid
+            && exists(/databases/$(database)/documents/users/$(request.resource.data.recipientId))
+            && userCanTransfer(request.auth.uid)
+          )
+        );
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.customerId == request.auth.uid)
+        || (signedIn() && resource.data.senderId == request.auth.uid)
+        || (signedIn() && resource.data.recipientId == request.auth.uid);
+
+      allow update: if isAdmin()
+        && request.resource.data.status in ["Pending", "Processing", "Successful", "Failed"];
+      allow delete: if false;
+    }
+
+    match /walletConversions/{conversionId} {
+      allow create: if signedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.type == "wallet-conversion"
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.status in ["Completed", "Failed"];
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.customerId == request.auth.uid);
+
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /deposits/{depositId} {
+      allow create: if signedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.user_id == request.auth.uid
+        && validDepositStatus(request.resource.data.status)
+        && request.resource.data.type == "deposit"
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.currency in ["GHS", "NGN"];
+
+      allow get: if isAdmin()
+        || (signedIn() && resource.data.customerId == request.auth.uid);
+
+      allow list: if isAdmin()
+        || (signedIn() && resource.data.customerId == request.auth.uid);
+
+      allow update: if signedIn()
+        && resource.data.customerId == request.auth.uid
+        && request.resource.data.customerId == resource.data.customerId
+        && validDepositStatus(request.resource.data.status)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            "senderName",
+            "sender_name",
+            "transactionId",
+            "transaction_id",
+            "screenshot",
+            "screenshotProof",
+            "status",
+            "paymentSubmittedAt",
+            "expiredAt",
+            "updatedAt"
+          ]);
+
+      allow update: if isAdmin()
+        && validDepositStatus(request.resource.data.status);
+
+      allow delete: if false;
+    }
+
+    match /transactions/{transactionId} {
+      allow create: if signedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && validOrderStatus(request.resource.data.status);
+
+      allow create: if signedIn()
+        && request.resource.data.type == "internal-transfer"
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.customerId is string
+        && request.resource.data.recipientId is string
+        && (
+          request.resource.data.customerId == request.auth.uid
+          || request.resource.data.customerId == request.resource.data.recipientId
+        )
+        && request.resource.data.currency in ["GHS", "NGN"]
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.status == "Completed";
+
+      allow create: if isAdmin();
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.customerId == request.auth.uid)
+        || (signedIn() && resource.data.senderId == request.auth.uid)
+        || (signedIn() && resource.data.recipientId == request.auth.uid);
+
+      allow update: if signedIn()
+        && resource.data.customerId == request.auth.uid
+        && request.resource.data.customerId == resource.data.customerId
+        && validOrderStatus(request.resource.data.status)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            "manualSenderName",
+            "paymentReference",
+            "transactionId",
+            "markedPaidAt",
+            "settlementAccount",
+            "accName",
+            "bankName",
+            "accNumber",
+            "submittedAt",
+            "expiredAt",
+            "disputeSenderName",
+            "disputeTransactionId",
+            "disputeExplanation",
+            "disputeProofUrl",
+            "disputeAt",
+            "status",
+            "updatedAt"
+          ]);
+
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /usedPaymentReferences/{referenceId} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+
+      allow create: if signedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.status == "processed"
+        && request.resource.data.reference == referenceId;
+
+      allow update, delete: if false;
+    }
+
+    match /supportThreads/{threadId} {
+      allow create, update: if isAdmin()
+        || (signedIn() && request.resource.data.customerId == request.auth.uid);
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.customerId == request.auth.uid);
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow create: if isAdmin()
+          || (signedIn()
+            && get(/databases/$(database)/documents/supportThreads/$(threadId)).data.customerId == request.auth.uid);
+
+        allow read: if isAdmin()
+          || (signedIn()
+            && get(/databases/$(database)/documents/supportThreads/$(threadId)).data.customerId == request.auth.uid);
+
+        allow update, delete: if false;
+      }
+    }
+
+    match /settings/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow create: if signedIn()
+        && (
+          request.resource.data.userId == request.auth.uid
+          || request.resource.data.forUserId == request.auth.uid
+          || validInternalTransferNotification()
+          || request.resource.data.forRole in ["admin", "customer"]
+          || isAdmin()
+        );
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid)
+        || (signedIn() && resource.data.forUserId == request.auth.uid)
+        || (signedIn() && resource.data.role == "admin" && isAdmin())
+        || (signedIn() && resource.data.forRole == "customer");
+
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid)
+        || (signedIn() && resource.data.forUserId == request.auth.uid)
+        || (signedIn() && resource.data.forRole == "customer");
+
+      allow delete: if false;
+    }
+
+    match /pushNotifications/{notificationId} {
+      allow create, read, update: if isAdmin();
+      allow delete: if false;
+    }
+  }
+}

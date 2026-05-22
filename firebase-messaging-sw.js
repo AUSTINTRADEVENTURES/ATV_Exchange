@@ -1,4 +1,4 @@
-importScripts("./sw.js?v=20260521successicons1");
+importScripts("./sw.js?v=20260521transferperm1");
 
 
 

@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260521successicons1";
+const appAssetVersion = "20260521transferperm1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521successicons1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521transferperm1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521successicons1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260521transferperm1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -8005,7 +8005,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260521successicons1")
+navigator.serviceWorker.register("./sw.js?v=20260521transferperm1")
 .then(registration => registration.update())
 .catch(() => {});
 }
