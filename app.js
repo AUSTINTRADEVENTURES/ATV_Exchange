@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260522transfercustomer1";
+const appAssetVersion = "20260522transfercustomer2";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer2");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer2");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4253,16 +4253,22 @@ let senderBalanceDoc = await transaction.get(senderBalanceRef);
 let recipientBalanceDoc = await transaction.get(recipientBalanceRef);
 let senderBalance = senderBalanceDoc.exists ? senderBalanceDoc.data() || {} : {};
 let recipientBalance = recipientBalanceDoc.exists ? recipientBalanceDoc.data() || {} : {};
-let currentBalance = Number(senderBalance[field] || 0);
-let currentRecipientBalance = Number(recipientBalance[field] || 0);
+let senderGhs = Number(senderBalance.ghs || 0);
+let senderNgn = Number(senderBalance.ngn || 0);
+let recipientGhs = Number(recipientBalance.ghs || 0);
+let recipientNgn = Number(recipientBalance.ngn || 0);
+let currentBalance = field === "ngn" ? senderNgn : senderGhs;
+let currentRecipientBalance = field === "ngn" ? recipientNgn : recipientGhs;
 if(!Number.isFinite(currentBalance) || currentBalance < amountValue) throw new Error("Insufficient "+currency+" balance");
 if(!Number.isFinite(currentRecipientBalance)) currentRecipientBalance = 0;
 
 let now = new Date().toLocaleString();
 let senderUpdate = {updatedAt:now, lastTransferId:requestId, lastTransferDirection:"sent"};
 let recipientUpdate = {updatedAt:now, lastTransferId:requestId, lastTransferDirection:"received"};
-senderUpdate[field] = Number((currentBalance - amountValue).toFixed(2));
-recipientUpdate[field] = Number((currentRecipientBalance + amountValue).toFixed(2));
+senderUpdate.ghs = Number((currency === "GHS" ? senderGhs - amountValue : senderGhs).toFixed(2));
+senderUpdate.ngn = Number((currency === "NGN" ? senderNgn - amountValue : senderNgn).toFixed(2));
+recipientUpdate.ghs = Number((currency === "GHS" ? recipientGhs + amountValue : recipientGhs).toFixed(2));
+recipientUpdate.ngn = Number((currency === "NGN" ? recipientNgn + amountValue : recipientNgn).toFixed(2));
 
 transaction.set(walletRef, {
 ...payload,
@@ -8019,7 +8025,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer1")
+navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer2")
 .then(registration => registration.update())
 .catch(() => {});
 }
