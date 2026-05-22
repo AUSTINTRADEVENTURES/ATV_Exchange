@@ -64,15 +64,27 @@ service cloud.firestore {
       let user = get(/databases/$(database)/documents/users/$(userId)).data;
       return signedIn()
         && userId == request.auth.uid
-        && !(user.accountStatus in ["banned", "ban", "Banned", "BAN", "restricted", "suspended", "Restricted", "Suspended"])
-        && user.banned != true
-        && user.transferRestricted != true
-        && user.restrictedFromTransfer != true;
+        && exists(/databases/$(database)/documents/users/$(userId))
+        && (
+          !user.keys().hasAny(["accountStatus"])
+          || !(user.accountStatus in ["banned", "ban", "Banned", "BAN", "restricted", "suspended", "Restricted", "Suspended", "restricted", "suspended"])
+        )
+        && (!user.keys().hasAny(["banned"]) || user.banned != true)
+        && (!user.keys().hasAny(["transferRestricted"]) || user.transferRestricted != true)
+        && (!user.keys().hasAny(["restrictedFromTransfer"]) || user.restrictedFromTransfer != true);
     }
 
     function balanceTransferKeys() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(["ghs", "ngn", "updatedAt", "lastTransferId", "lastTransferDirection"]);
+    }
+
+    function oldGhs() {
+      return resource.data.keys().hasAny(["ghs"]) && resource.data.ghs is number ? resource.data.ghs : 0;
+    }
+
+    function oldNgn() {
+      return resource.data.keys().hasAny(["ngn"]) && resource.data.ngn is number ? resource.data.ngn : 0;
     }
 
     function validSenderTransferUpdate(userId, currency) {
@@ -92,14 +104,12 @@ service cloud.firestore {
         && transferAfter().amount > 0
         && (
           currency == "GHS"
-            ? resource.data.ghs is number
-              && request.resource.data.ghs == resource.data.ghs - transferAfter().amount
+            ? request.resource.data.ghs == oldGhs() - transferAfter().amount
               && request.resource.data.ghs >= 0
-              && request.resource.data.ngn == resource.data.ngn
-            : resource.data.ngn is number
-              && request.resource.data.ngn == resource.data.ngn - transferAfter().amount
+              && request.resource.data.ngn == oldNgn()
+            : request.resource.data.ngn == oldNgn() - transferAfter().amount
               && request.resource.data.ngn >= 0
-              && request.resource.data.ghs == resource.data.ghs
+              && request.resource.data.ghs == oldGhs()
         );
     }
 
@@ -119,10 +129,10 @@ service cloud.firestore {
         && transferAfter().amount > 0
         && (
           currency == "GHS"
-            ? request.resource.data.ghs == resource.data.ghs + transferAfter().amount
-              && request.resource.data.ngn == resource.data.ngn
-            : request.resource.data.ngn == resource.data.ngn + transferAfter().amount
-              && request.resource.data.ghs == resource.data.ghs
+            ? request.resource.data.ghs == oldGhs() + transferAfter().amount
+              && request.resource.data.ngn == oldNgn()
+            : request.resource.data.ngn == oldNgn() + transferAfter().amount
+              && request.resource.data.ghs == oldGhs()
         );
     }
 

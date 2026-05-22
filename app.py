@@ -263,6 +263,30 @@ def normalize_payload(data, default_link):
     }
 
 
+def account_blocks_transfer(user):
+    status = str((user or {}).get("accountStatus") or (user or {}).get("status") or "active").strip().lower()
+    return (
+        status in {"banned", "ban", "restricted", "suspended"}
+        or (user or {}).get("banned") is True
+        or (user or {}).get("transferRestricted") is True
+        or (user or {}).get("restrictedFromTransfer") is True
+    )
+
+
+def number_value(value):
+    try:
+        value = float(value)
+        if value != value:
+            return 0.0
+        return value
+    except Exception:
+        return 0.0
+
+
+def clean_money(value):
+    return round(number_value(value), 2)
+
+
 def can_serve_public_file(filename):
     clean_name = filename.split("?", 1)[0].strip("/")
     if not clean_name or clean_name.startswith(".") or ".." in clean_name:
@@ -498,6 +522,175 @@ def notify_event():
         return jsonify({"ok": True, **result})
 
     return json_error("Unknown notification event")
+
+
+@app.post("/internal-transfer")
+def internal_transfer():
+    try:
+        decoded = verify_request_user()
+    except Exception:
+        return json_error("Invalid Firebase token", 401)
+
+    if not decoded:
+        return json_error("Missing Firebase token", 401)
+
+    data = request.get_json(silent=True) or {}
+    sender_id = decoded.get("uid", "")
+    sender_email = decoded.get("email", "")
+    recipient_id = str(data.get("recipientId") or "").strip()
+    currency = str(data.get("currency") or "").strip().upper()
+    amount = clean_money(data.get("amount"))
+    request_id = str(data.get("requestId") or ("TRF-" + str(int(time.time() * 1000)))).strip()
+
+    if not sender_id:
+        return json_error("Missing sender", 401)
+    if not recipient_id:
+        return json_error("Missing recipient")
+    if recipient_id == sender_id:
+        return json_error("You cannot send money to yourself")
+    if currency not in {"GHS", "NGN"}:
+        return json_error("Invalid currency")
+    if amount <= 0:
+        return json_error("Enter a valid amount")
+
+    sender_ref = db.collection("users").document(sender_id)
+    recipient_ref = db.collection("users").document(recipient_id)
+    sender_balance_ref = db.collection("balances").document(sender_id)
+    recipient_balance_ref = db.collection("balances").document(recipient_id)
+    wallet_ref = db.collection("walletRequests").document(request_id)
+    sender_tx_ref = db.collection("transactions").document(request_id + "-sender")
+    recipient_tx_ref = db.collection("transactions").document(request_id + "-recipient")
+
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def do_transfer(tx):
+        sender_doc = sender_ref.get(transaction=tx)
+        recipient_doc = recipient_ref.get(transaction=tx)
+        if not sender_doc.exists:
+            raise ValueError("Sender account not found")
+        if not recipient_doc.exists:
+            raise ValueError("Recipient not found")
+
+        sender_user = sender_doc.to_dict() or {}
+        recipient_user = recipient_doc.to_dict() or {}
+        if account_blocks_transfer(sender_user):
+            raise PermissionError("This account is restricted from transfers")
+
+        existing_transfer = wallet_ref.get(transaction=tx)
+        if existing_transfer.exists:
+            raise ValueError("Duplicate transfer request")
+
+        sender_balance_doc = sender_balance_ref.get(transaction=tx)
+        recipient_balance_doc = recipient_balance_ref.get(transaction=tx)
+        sender_balance = sender_balance_doc.to_dict() if sender_balance_doc.exists else {}
+        recipient_balance = recipient_balance_doc.to_dict() if recipient_balance_doc.exists else {}
+
+        field = "ngn" if currency == "NGN" else "ghs"
+        sender_ghs = clean_money((sender_balance or {}).get("ghs", 0))
+        sender_ngn = clean_money((sender_balance or {}).get("ngn", 0))
+        recipient_ghs = clean_money((recipient_balance or {}).get("ghs", 0))
+        recipient_ngn = clean_money((recipient_balance or {}).get("ngn", 0))
+        available = sender_ngn if field == "ngn" else sender_ghs
+        if available < amount:
+            raise ValueError("Insufficient " + currency + " balance")
+
+        sender_name = (
+            data.get("senderName")
+            or sender_user.get("fullName")
+            or sender_user.get("name")
+            or sender_user.get("username")
+            or sender_email
+            or "ATV user"
+        )
+        recipient_name = (
+            data.get("recipientName")
+            or recipient_user.get("fullName")
+            or recipient_user.get("name")
+            or recipient_user.get("username")
+            or "ATV user"
+        )
+        recipient_username = data.get("recipientUsername") or recipient_user.get("username") or ""
+        recipient_uid = data.get("recipientTransferUid") or recipient_user.get("transferUid") or recipient_user.get("atvUid") or ""
+        now_text = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        new_sender_ghs = clean_money(sender_ghs - amount) if currency == "GHS" else sender_ghs
+        new_sender_ngn = clean_money(sender_ngn - amount) if currency == "NGN" else sender_ngn
+        new_recipient_ghs = clean_money(recipient_ghs + amount) if currency == "GHS" else recipient_ghs
+        new_recipient_ngn = clean_money(recipient_ngn + amount) if currency == "NGN" else recipient_ngn
+
+        base_payload = {
+            "requestId": request_id,
+            "senderId": sender_id,
+            "senderEmail": sender_email,
+            "senderName": sender_name,
+            "recipientId": recipient_id,
+            "recipientName": recipient_name,
+            "recipientUsername": recipient_username,
+            "recipientTransferUid": recipient_uid,
+            "currency": currency,
+            "amount": amount,
+            "type": "internal-transfer",
+            "status": "Successful",
+            "createdAt": now_text,
+            "updatedAt": now_text,
+            "processedBy": "pythonanywhere-backend",
+        }
+
+        tx.set(wallet_ref, base_payload)
+        tx.set(sender_balance_ref, {
+            "ghs": new_sender_ghs,
+            "ngn": new_sender_ngn,
+            "updatedAt": now_text,
+            "lastTransferId": request_id,
+            "lastTransferDirection": "sent",
+        }, merge=True)
+        tx.set(recipient_balance_ref, {
+            "ghs": new_recipient_ghs,
+            "ngn": new_recipient_ngn,
+            "updatedAt": now_text,
+            "lastTransferId": request_id,
+            "lastTransferDirection": "received",
+        }, merge=True)
+        tx.set(sender_tx_ref, {
+            **base_payload,
+            "orderID": request_id,
+            "direction": "sent",
+            "customerId": sender_id,
+            "customerEmail": sender_email,
+            "converted": amount,
+            "status": "Completed",
+            "date": now_text,
+        })
+        tx.set(recipient_tx_ref, {
+            **base_payload,
+            "orderID": request_id,
+            "direction": "received",
+            "customerId": recipient_id,
+            "converted": amount,
+            "status": "Completed",
+            "date": now_text,
+        })
+
+        return {
+            "requestId": request_id,
+            "senderName": sender_name,
+            "recipientName": recipient_name,
+            "recipientUsername": recipient_username,
+            "recipientTransferUid": recipient_uid,
+            "currency": currency,
+            "amount": amount,
+        }
+
+    try:
+        result = do_transfer(transaction)
+        return jsonify({"ok": True, **result})
+    except PermissionError as exc:
+        return json_error(str(exc), 403)
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+    except Exception as exc:
+        return json_error("Transfer failed: " + str(exc), 500)
 
 
 @app.get("/<path:filename>")

@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260522transfercustomer2";
+const appAssetVersion = "20260522backendtransfer1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer2");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260522backendtransfer1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer2");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260522backendtransfer1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4241,83 +4241,16 @@ clientRequestKey: requestId
 };
 
 try{
-let senderBalanceRef = db.collection("balances").doc(currentUser.uid);
-let recipientBalanceRef = db.collection("balances").doc(recipient.id);
-let walletRef = db.collection("walletRequests").doc(requestId);
-let senderTxRef = db.collection("transactions").doc(requestId+"-sender");
-let recipientTxRef = db.collection("transactions").doc(requestId+"-recipient");
-let field = currency === "NGN" ? "ngn" : "ghs";
-
-await db.runTransaction(async transaction=>{
-let senderBalanceDoc = await transaction.get(senderBalanceRef);
-let recipientBalanceDoc = await transaction.get(recipientBalanceRef);
-let senderBalance = senderBalanceDoc.exists ? senderBalanceDoc.data() || {} : {};
-let recipientBalance = recipientBalanceDoc.exists ? recipientBalanceDoc.data() || {} : {};
-let senderGhs = Number(senderBalance.ghs || 0);
-let senderNgn = Number(senderBalance.ngn || 0);
-let recipientGhs = Number(recipientBalance.ghs || 0);
-let recipientNgn = Number(recipientBalance.ngn || 0);
-let currentBalance = field === "ngn" ? senderNgn : senderGhs;
-let currentRecipientBalance = field === "ngn" ? recipientNgn : recipientGhs;
-if(!Number.isFinite(currentBalance) || currentBalance < amountValue) throw new Error("Insufficient "+currency+" balance");
-if(!Number.isFinite(currentRecipientBalance)) currentRecipientBalance = 0;
-
-let now = new Date().toLocaleString();
-let senderUpdate = {updatedAt:now, lastTransferId:requestId, lastTransferDirection:"sent"};
-let recipientUpdate = {updatedAt:now, lastTransferId:requestId, lastTransferDirection:"received"};
-senderUpdate.ghs = Number((currency === "GHS" ? senderGhs - amountValue : senderGhs).toFixed(2));
-senderUpdate.ngn = Number((currency === "NGN" ? senderNgn - amountValue : senderNgn).toFixed(2));
-recipientUpdate.ghs = Number((currency === "GHS" ? recipientGhs + amountValue : recipientGhs).toFixed(2));
-recipientUpdate.ngn = Number((currency === "NGN" ? recipientNgn + amountValue : recipientNgn).toFixed(2));
-
-transaction.set(walletRef, {
+let transferResult = await callPushBackend("/internal-transfer", {
 ...payload,
-type:"internal-transfer",
-status:"Successful",
-createdAt: now,
-updatedAt: now
-});
-transaction.set(senderBalanceRef, senderUpdate, {merge:true});
-transaction.set(recipientBalanceRef, recipientUpdate, {merge:true});
-transaction.set(senderTxRef, {
-orderID: requestId,
-type: "internal-transfer",
-direction: "sent",
-customerId: currentUser.uid,
-senderId: currentUser.uid,
-senderName,
-customerEmail: currentUser.email,
-recipientId: recipient.id,
-recipientName,
-recipientUsername,
-recipientTransferUid: recipientUid,
-currency,
 amount: amountValue,
-converted: amountValue,
-status: "Completed",
-date: now,
-createdAt: now
+currency
 });
-transaction.set(recipientTxRef, {
-orderID: requestId,
-type: "internal-transfer",
-direction: "received",
-customerId: recipient.id,
-senderId: currentUser.uid,
-senderEmail: currentUser.email,
-senderName,
-recipientId: recipient.id,
-recipientName,
-recipientUsername,
-recipientTransferUid: recipientUid,
-currency,
-amount: amountValue,
-converted: amountValue,
-status: "Completed",
-date: now,
-createdAt: now
-});
-});
+if(!transferResult || transferResult.ok === false) throw new Error((transferResult && (transferResult.message || transferResult.error)) || "Backend transfer failed");
+requestId = transferResult.requestId || requestId;
+recipientName = transferResult.recipientName || recipientName;
+recipientUsername = transferResult.recipientUsername || recipientUsername;
+recipientUid = transferResult.recipientTransferUid || recipientUid;
 
 transferStatus.innerText = "Transfer successful.";
 showToast("Transfer successful");
@@ -4371,7 +4304,7 @@ details: [
 }catch(error){
 let message = error.message || "";
 if(message.toLowerCase().includes("permission")){
-message = "Transfer failed because of permission/rules. Upload app.js, publish the latest Firestore rules, then reload the app.";
+message = "Transfer failed because of permission. Upload the latest app.js and app.py to PythonAnywhere, reload the web app, then try again.";
 }else if(message.toLowerCase().includes("insufficient")){
 message = "Insufficient balance.";
 }
@@ -8025,7 +7958,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer2")
+navigator.serviceWorker.register("./sw.js?v=20260522backendtransfer1")
 .then(registration => registration.update())
 .catch(() => {});
 }

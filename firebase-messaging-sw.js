@@ -1,4 +1,4 @@
-importScripts("./sw.js?v=20260522transfercustomer2");
+importScripts("./sw.js?v=20260522backendtransfer1");
 
 
 
