@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260521transferperm1";
+const appAssetVersion = "20260522transfercustomer1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521transferperm1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260521transferperm1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4246,20 +4246,23 @@ let recipientBalanceRef = db.collection("balances").doc(recipient.id);
 let walletRef = db.collection("walletRequests").doc(requestId);
 let senderTxRef = db.collection("transactions").doc(requestId+"-sender");
 let recipientTxRef = db.collection("transactions").doc(requestId+"-recipient");
-let senderNotificationRef = db.collection("notifications").doc();
-let recipientNotificationRef = db.collection("notifications").doc();
 let field = currency === "NGN" ? "ngn" : "ghs";
 
 await db.runTransaction(async transaction=>{
 let senderBalanceDoc = await transaction.get(senderBalanceRef);
-let currentBalance = senderBalanceDoc.exists ? Number((senderBalanceDoc.data() || {})[field] || 0) : 0;
-if(currentBalance < amountValue) throw new Error("Insufficient "+currency+" balance");
+let recipientBalanceDoc = await transaction.get(recipientBalanceRef);
+let senderBalance = senderBalanceDoc.exists ? senderBalanceDoc.data() || {} : {};
+let recipientBalance = recipientBalanceDoc.exists ? recipientBalanceDoc.data() || {} : {};
+let currentBalance = Number(senderBalance[field] || 0);
+let currentRecipientBalance = Number(recipientBalance[field] || 0);
+if(!Number.isFinite(currentBalance) || currentBalance < amountValue) throw new Error("Insufficient "+currency+" balance");
+if(!Number.isFinite(currentRecipientBalance)) currentRecipientBalance = 0;
 
 let now = new Date().toLocaleString();
 let senderUpdate = {updatedAt:now, lastTransferId:requestId, lastTransferDirection:"sent"};
 let recipientUpdate = {updatedAt:now, lastTransferId:requestId, lastTransferDirection:"received"};
-senderUpdate[field] = firebase.firestore.FieldValue.increment(-amountValue);
-recipientUpdate[field] = firebase.firestore.FieldValue.increment(amountValue);
+senderUpdate[field] = Number((currentBalance - amountValue).toFixed(2));
+recipientUpdate[field] = Number((currentRecipientBalance + amountValue).toFixed(2));
 
 transaction.set(walletRef, {
 ...payload,
@@ -4308,7 +4311,14 @@ status: "Completed",
 date: now,
 createdAt: now
 });
-transaction.set(senderNotificationRef, {
+});
+
+transferStatus.innerText = "Transfer successful.";
+showToast("Transfer successful");
+try{
+let now = new Date().toLocaleString();
+await Promise.all([
+db.collection("notifications").add({
 forUserId: currentUser.uid,
 type: "internal-transfer",
 title: "Transfer Sent",
@@ -4316,8 +4326,8 @@ message: "You sent "+currency+" "+format(amountValue)+" to "+recipientName+".",
 transactionId: requestId,
 createdAt: now,
 read: false
-});
-transaction.set(recipientNotificationRef, {
+}),
+db.collection("notifications").add({
 forUserId: recipient.id,
 type: "internal-transfer",
 title: "Transfer Received",
@@ -4325,14 +4335,18 @@ message: "You received "+currency+" "+format(amountValue)+" from "+senderName+".
 transactionId: requestId,
 createdAt: now,
 read: false
-});
-});
-
-transferStatus.innerText = "Transfer successful.";
-showToast("Transfer successful");
+})
+]);
+}catch(notificationError){
+appLog("Transfer notification history skipped", notificationError.message);
+}
+try{
 await notifyBackendUser(recipient.id, "Transfer Received", "You received "+currency+" "+format(amountValue)+" from "+senderName+".", orderDetailUrl("walletRequests", requestId), {requestId, transactionId:requestId, type:"internal-transfer", currency, amount:amountValue});
 await notifyAdmin("internal-transfer", "Internal transfer completed", senderName+" sent "+currency+" "+format(amountValue)+" to "+recipientName+".", orderDetailUrl("walletRequests", requestId), {requestId, senderId:currentUser.uid, recipientId:recipient.id, currency, amount:amountValue}, "medium");
 await notifyLargeTransactionIfNeeded(currency, amountValue, orderDetailUrl("walletRequests", requestId), {requestId, type:"internal-transfer"});
+}catch(pushError){
+appLog("Transfer push notification skipped", pushError.message);
+}
 openTransactionSuccess({
 title: "Transfer Successful",
 message: "Your internal transfer has been sent successfully.",
@@ -8005,7 +8019,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260521transferperm1")
+navigator.serviceWorker.register("./sw.js?v=20260522transfercustomer1")
 .then(registration => registration.update())
 .catch(() => {});
 }
