@@ -2,12 +2,12 @@
   "name": "ATV Exchange",
   "short_name": "ATV",
   "id": "/index.html",
-  "start_url": "./index.html?v=20260520navpages1",
+  "start_url": "./index.html?v=20260528flutterwave1",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#079247",
-  "theme_color": "#079247",
+  "background_color": "#070d0b",
+  "theme_color": "#16C784",
   "gcm_sender_id": "103953800507",
   "icons": [
     {
