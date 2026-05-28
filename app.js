@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260522swapfix1";
+const appAssetVersion = "20260528flutterwave1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -190,7 +190,7 @@ return loader;
 }
 
 function showPageLoader(message, options){
-if(document.getElementById("splashScreen") && getPageName() === "index.html") return;
+if(document.getElementById("splashScreen") && getPageName() === "login.html") return;
 let loader = ensurePageLoader();
 let opts = options || {};
 let mode = opts.mode || (pageLoaderFirstShowDone ? "mini" : "full");
@@ -298,9 +298,9 @@ let page = getPageName();
 showPageLoader("Loading "+(page.replace(".html","") || "page")+"...", {mode:"full"});
 appLog("Auth state changed", {signedIn: !!user, page});
 
-if(!user && page !== "index.html" && page !== "signup.html"){
+if(!user && page !== "login.html" && page !== "signup.html"){
 appLog("No user on protected page; redirecting to login");
-window.location.replace("index.html");
+window.location.replace("login.html");
 return;
 }
 
@@ -312,7 +312,7 @@ if(isAccountBanned(statusProfile)){
 await auth.signOut();
 if(document.getElementById("loginStatus")) loginStatus.innerText = "This account has been banned. Please contact support.";
 alert("This account has been banned. Please contact support.");
-if(page !== "index.html") window.location.replace("index.html");
+if(page !== "login.html") window.location.replace("login.html");
 return;
 }
 }catch(error){
@@ -320,13 +320,13 @@ appLog("Account status check skipped", error.message);
 }
 }
 
-if(user && (page === "index.html" || page === "signup.html")){
+if(user && (page === "login.html" || page === "signup.html")){
 appLog("User signed in on auth page; opening dashboard");
 window.location.replace("exchange.html");
 return;
 }
 
-if(!user && page === "index.html"){
+if(!user && page === "login.html"){
 showLoginAfterSplash(900);
 return;
 }
@@ -417,7 +417,7 @@ button.setAttribute("aria-label", showing ? "Show password" : "Hide password");
 }
 
 function ensureSubPageBackButton(page){
-let noBackPages = ["index.html","signup.html","exchange.html","dashboard.html"];
+let noBackPages = ["index.html","login.html","signup.html","exchange.html","dashboard.html"];
 if(noBackPages.includes(page) || document.querySelector(".back-btn")) return;
 let adminPages = ["profit.html","rates.html","customers.html","announcements.html","deposit-orders.html","convert-orders.html","swap-orders.html","withdrawal-orders.html","utility-bill-approvals.html","transaction-history.html"];
 let backTarget = page === "order-detail.html" ? (isAdmin ? "dashboard.html" : "orders.html") : page.includes("admin") || adminPages.includes(page) ? "dashboard.html" : "exchange.html";
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260522swapfix1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260528flutterwave1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260522swapfix1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260528flutterwave1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -1789,7 +1789,7 @@ currentProfile = currentProfile || await getCustomerProfile();
 if(isAccountBanned(currentProfile)){
 await auth.signOut();
 alert("This account has been banned. Please contact support.");
-window.location.replace("index.html");
+window.location.replace("login.html");
 return false;
 }
 if(isAccountRestricted(currentProfile)){
@@ -1812,7 +1812,7 @@ return false;
 if(isAccountBanned(profile)){
 await auth.signOut();
 alert("This account has been banned. Please contact support.");
-window.location.replace("index.html");
+window.location.replace("login.html");
 return false;
 }
 return true;
@@ -2106,7 +2106,7 @@ setLoading("registerBtn", false);
 
 function logout(){
 auth.signOut().then(()=>{
-window.location.href = "index.html";
+window.location.href = "login.html";
 });
 }
 
@@ -7957,7 +7957,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260522swapfix1")
+navigator.serviceWorker.register("./sw.js?v=20260528flutterwave1")
 .then(registration => registration.update())
 .catch(() => {});
 }

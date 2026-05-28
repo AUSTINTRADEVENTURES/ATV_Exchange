@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>ATV Exchange - Login</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#16C784">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest.json?v=20260528flutterwave1">
+<style>
+body{margin:0;background:#07100d;font-family:Arial,sans-serif}
+.login-body{background:#07100d}
+.login-shell{min-height:100vh;display:grid;place-items:center;padding:18px}
+.splash-screen{min-height:92vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:white;opacity:.9}
+.splash-logo{width:74px;height:74px;border-radius:22px;background:#16C784;color:#03130d;display:grid;place-items:center;font-size:38px;font-weight:bold;animation:splashPop .75s ease both}
+.splash-screen h1{font-size:32px;margin:16px 0 6px;animation:splashFade .75s ease .25s both}
+.splash-screen p{animation:splashFade .75s ease .42s both}
+.splash-loader{width:100px;height:4px;background:rgba(255,255,255,.18);border-radius:999px;overflow:hidden;margin-top:22px}
+.splash-loader:after{content:"";display:block;width:45%;height:100%;background:#16C784;border-radius:999px;animation:splashLoad 1.7s ease-in-out infinite}
+@keyframes splashPop{0%{transform:scale(.82);opacity:0}100%{transform:scale(1);opacity:1}}
+@keyframes splashFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes splashLoad{0%{transform:translateX(-120%)}100%{transform:translateX(240%)}}
+</style>
+<link rel="stylesheet" href="./styles.css?v=20260528flutterwave1">
+</head>
+
+<body class="login-body">
+<script>
+window.addEventListener("DOMContentLoaded", function(){
+  setTimeout(function(){
+    var splash = document.getElementById("splashScreen");
+    var login = document.getElementById("loginCard");
+    if (splash && login && login.classList.contains("hidden")) {
+      console.log("[ATV] Splash fallback opened login");
+      splash.classList.add("hidden");
+      login.classList.remove("hidden");
+    }
+  }, 2200);
+});
+</script>
+<div class="login-shell">
+<div id="splashScreen" class="splash-screen">
+<div class="splash-logo">A</div>
+<h1>ATV Exchange</h1>
+<p>Fast. Secure. Reliable.</p>
+<div class="splash-loader"></div>
+</div>
+
+<div class="login-card hidden" id="loginCard">
+<div class="login-brand">
+<div class="brand-mark">A</div>
+<div>
+<h1>ATV Exchange</h1>
+<p>Fast. Secure. Reliable.</p>
+</div>
+</div>
+
+<div class="auth-grid auth-grid-login">
+<div>
+<h2>Login</h2>
+<input id="email" type="email" placeholder="Email Address">
+<div class="password-field"><input id="password" type="password" placeholder="Password"><button type="button" onclick="togglePasswordVisibility('password', this)" aria-label="Show password">&#128065;</button></div>
+<button class="forgot-password-link" onclick="forgotPassword()">Forgot Password?</button>
+<button id="loginBtn" onclick="login()">Login</button>
+<a class="button-link secondary-link" href="signup.html">Create Account</a>
+<a class="button-link secondary-link" href="index.html">Back to Home</a>
+</div>
+</div>
+
+<div id="loginStatus" class="help"></div>
+</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="./app.js?v=20260528flutterwave1"></script>
+</body>
+</html>
