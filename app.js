@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260528flutterwave1";
+const appAssetVersion = "20260529payoutverify1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260528flutterwave1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260529payoutverify1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260528flutterwave1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260529payoutverify1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -2205,6 +2205,7 @@ return number > 0 ? number : 0;
 
 function normalizeWalletStatus(status){
 let value = String(status || "Pending").toLowerCase();
+if(value === "paid") return "Paid";
 if(value === "successful" || value === "success" || value === "completed") return "Successful";
 if(value === "processing") return "Processing";
 if(value === "failed" || value === "failure") return "Failed";
@@ -2213,7 +2214,7 @@ return "Pending";
 
 function walletStatusClass(status){
 let normalized = normalizeWalletStatus(status);
-if(normalized === "Successful") return "completed";
+if(normalized === "Successful" || normalized === "Paid") return "completed";
 if(normalized === "Failed") return "paid";
 if(normalized === "Processing") return "paid";
 return "pending";
@@ -3277,7 +3278,12 @@ alert(error.message);
 }
 
 async function loadWithdrawalPinPage(){
-if(document.getElementById("withdrawalPinStatus")) withdrawalPinStatus.innerText = "Choose a PIN you can remember. Do not share it.";
+if(document.getElementById("withdrawalPinStatus")){
+let params = new URLSearchParams(window.location.search);
+withdrawalPinStatus.innerText = params.get("forgot") === "1"
+? "Create a new PIN. Your old PIN will be replaced after saving."
+: "Choose a PIN you can remember. Do not share it.";
+}
 }
 
 function pinHash(value){
@@ -3292,15 +3298,122 @@ let pin = withdrawalPin.value.trim();
 let confirmPin = withdrawalPinConfirm.value.trim();
 if(!/^[0-9]{4,6}$/.test(pin)) return alert("PIN must be 4-6 numbers");
 if(pin !== confirmPin) return alert("PIN confirmation does not match");
-await db.collection("users").doc(currentUser.uid).set({
+let nowText = new Date().toLocaleString();
+await db.collection("users").doc(currentUser.uid).collection("security").doc("withdrawalPin").set({
 withdrawalPinSet: true,
 withdrawalPinHash: pinHash(currentUser.uid+"-"+pin),
-withdrawalPinUpdatedAt: new Date().toLocaleString()
+withdrawalPinUpdatedAt: nowText
+},{merge:true});
+await db.collection("users").doc(currentUser.uid).set({
+withdrawalPinSet: true,
+withdrawalPinHash: firebase.firestore.FieldValue.delete(),
+withdrawalPinUpdatedAt: nowText
 },{merge:true});
 withdrawalPin.value = "";
 withdrawalPinConfirm.value = "";
 if(document.getElementById("withdrawalPinStatus")) withdrawalPinStatus.innerText = "Withdrawal PIN saved.";
 showToast("Withdrawal PIN saved");
+}
+
+function forgotWithdrawalPin(){
+if(!confirm("Forgot your withdrawal PIN?\n\nYou can create a new PIN while signed in. For your safety, never share this PIN with support or anyone else.")) return;
+goToPage("withdrawal-pin.html?forgot=1");
+}
+
+function promptForWithdrawalPin(reason){
+return new Promise(resolve=>{
+let existing = document.getElementById("pinVerifyOverlay");
+if(existing) existing.remove();
+let overlay = document.createElement("div");
+overlay.id = "pinVerifyOverlay";
+overlay.className = "pin-verify-overlay";
+overlay.innerHTML = `
+<div class="pin-verify-card">
+<button class="pin-close" type="button" aria-label="Close">&times;</button>
+<span class="public-kicker">Security Check</span>
+<h3>Enter Withdrawal PIN</h3>
+<p>${escapeHtml(reason || "Confirm this transaction with your private PIN.")}</p>
+<div class="password-field"><input id="pinVerifyInput" type="password" inputmode="numeric" maxlength="6" placeholder="4-6 digit PIN"><button type="button" onclick="togglePasswordVisibility('pinVerifyInput', this)" aria-label="Show PIN">&#128065;</button></div>
+<div id="pinVerifyError" class="help"></div>
+<button id="pinVerifyContinue" type="button">Continue</button>
+<button id="pinVerifyForgot" class="secondary-link" type="button">Forgot PIN?</button>
+</div>
+`;
+document.body.appendChild(overlay);
+let input = document.getElementById("pinVerifyInput");
+let close = overlay.querySelector(".pin-close");
+let continueBtn = document.getElementById("pinVerifyContinue");
+let forgotBtn = document.getElementById("pinVerifyForgot");
+function finish(value){
+overlay.remove();
+resolve(value);
+}
+close.onclick = ()=>finish("");
+forgotBtn.onclick = ()=>{
+overlay.remove();
+forgotWithdrawalPin();
+resolve("");
+};
+continueBtn.onclick = ()=>{
+let value = input.value.trim();
+if(!/^[0-9]{4,6}$/.test(value)){
+pinVerifyError.innerText = "Enter your 4-6 digit PIN";
+return;
+}
+finish(value);
+};
+input.addEventListener("keydown", event=>{
+if(event.key === "Enter") continueBtn.click();
+if(event.key === "Escape") finish("");
+});
+setTimeout(()=>input.focus(), 80);
+});
+}
+
+async function getWithdrawalPinRecord(){
+let securityRef = db.collection("users").doc(currentUser.uid).collection("security").doc("withdrawalPin");
+let securityDoc = await securityRef.get();
+if(securityDoc.exists) return {source:"security", data:securityDoc.data() || {}};
+let profile = currentProfile || await getCustomerProfile() || {};
+if(profile.withdrawalPinSet && profile.withdrawalPinHash){
+return {source:"legacy", data:profile};
+}
+return null;
+}
+
+async function requireWithdrawalPinVerification(reason){
+if(!currentUser) return false;
+let record = await getWithdrawalPinRecord();
+if(!record || !record.data.withdrawalPinSet || !record.data.withdrawalPinHash){
+alert("Set your withdrawal PIN first.");
+goToPage("withdrawal-pin.html");
+return false;
+}
+let pin = await promptForWithdrawalPin(reason);
+if(!pin) return false;
+let expectedHash = record.data.withdrawalPinHash;
+let actualHash = pinHash(currentUser.uid+"-"+pin);
+if(actualHash !== expectedHash){
+alert("Incorrect withdrawal PIN");
+return false;
+}
+if(record.source === "legacy"){
+try{
+let nowText = new Date().toLocaleString();
+await db.collection("users").doc(currentUser.uid).collection("security").doc("withdrawalPin").set({
+withdrawalPinSet: true,
+withdrawalPinHash: expectedHash,
+withdrawalPinUpdatedAt: record.data.withdrawalPinUpdatedAt || nowText,
+migratedAt: nowText
+},{merge:true});
+await db.collection("users").doc(currentUser.uid).set({
+withdrawalPinHash: firebase.firestore.FieldValue.delete()
+},{merge:true});
+}catch(error){
+appLog("Withdrawal PIN legacy migration skipped", error.message);
+}
+}
+return {ok:true, pin};
 }
 
 async function saveProfile(){
@@ -4218,6 +4331,8 @@ recipientPreview.innerHTML = `
 `;
 }
 if(!confirm("Confirm internal transfer\n\nFull name: "+recipientName+"\nUsername: "+recipientUsername+"\nATV UID: "+recipientUid+"\nAmount: "+currency+" "+format(amountValue)+"\n\nOnly continue if the recipient details are correct.")) return;
+let pinCheck = await requireWithdrawalPinVerification("Enter your withdrawal PIN to approve this UID transfer.");
+if(!pinCheck) return;
 
 walletActionBusy = true;
 setLoading("transferBtn", true, "Sending...");
@@ -4243,7 +4358,8 @@ try{
 let transferResult = await callPushBackend("/internal-transfer", {
 ...payload,
 amount: amountValue,
-currency
+currency,
+withdrawalPin: pinCheck.pin
 });
 if(!transferResult || transferResult.ok === false) throw new Error((transferResult && (transferResult.message || transferResult.error)) || "Backend transfer failed");
 requestId = transferResult.requestId || requestId;
@@ -4320,23 +4436,10 @@ await loadRateSettings();
 loadWalletHistory("withdraw", "withdrawHistory");
 let profile = await getCustomerProfile();
 currentProfile = profile;
-window.withdrawState = window.withdrawState || {currency:"GHS", balances:{ghs:0, ngn:0}, activeRequestId:""};
-
-if(document.getElementById("withdrawPaymentMethod") && profile){
-let label = buildPaymentMethodLabel(profile);
-withdrawPaymentMethod.innerHTML = label
-? `<option value="preferred">${label}</option><option value="new">Enter payment method for this withdrawal</option>`
-: '<option value="new">Enter payment method for this withdrawal</option>';
-
-if(document.getElementById("withdrawProvider")) withdrawProvider.value = profile.paymentProvider || "";
-if(document.getElementById("withdrawAccountName")) withdrawAccountName.value = profile.paymentAccountName || "";
-if(document.getElementById("withdrawAccountNumber")) withdrawAccountNumber.value = profile.paymentAccountNumber || "";
-if(document.getElementById("withdrawSavedMethodBox")) withdrawSavedMethodBox.innerHTML = label ? `<b>Saved method:</b> ${label}` : "No saved payment method yet. Enter a payout account below.";
-}
+window.withdrawState = window.withdrawState || {currency:"GHS", balances:{ghs:0, ngn:0}, activeRequestId:"", payoutVerified:false, payoutDetails:null};
 
 selectWithdrawCurrency("GHS");
 showWithdrawStep(1);
-toggleWithdrawAccountFields();
 
 db.collection("balances").doc(currentUser.uid).onSnapshot(doc=>{
 let data = doc.exists ? doc.data() : {};
@@ -4390,18 +4493,122 @@ updateWithdrawPreview();
 function applyWithdrawCurrencyMethodRule(currency){
 let isNgn = currency === "NGN";
 if(document.getElementById("withdrawPaymentMethod")){
-withdrawPaymentMethod.innerHTML = `<option value="new">${isNgn ? "Bank Transfer only for NGN withdrawals" : "MTN Mobile Money only for GHS withdrawals"}</option>`;
+withdrawPaymentMethod.value = isNgn ? "Bank Transfer" : "MTN Mobile Money";
 }
 if(document.getElementById("withdrawProvider")){
-withdrawProvider.placeholder = isNgn ? "Bank name" : "MTN Mobile Money";
-if(!isNgn) withdrawProvider.value = "MTN Mobile Money";
-if(isNgn && withdrawProvider.value === "MTN Mobile Money") withdrawProvider.value = "";
+withdrawProvider.innerHTML = isNgn ? nigerianBankOptionsHtml() : '<option value="MTN Mobile Money" data-code="MTN">MTN Mobile Money</option>';
 }
-if(document.getElementById("withdrawAccountNumber")) withdrawAccountNumber.placeholder = isNgn ? "Bank account number" : "MoMo number";
+if(document.getElementById("withdrawProviderLabel")) withdrawProviderLabel.innerText = isNgn ? "Bank Name" : "Network";
+if(document.getElementById("withdrawAccountNumberLabel")) withdrawAccountNumberLabel.innerText = isNgn ? "Account Number" : "MoMo Number";
+if(document.getElementById("withdrawAccountNameLabel")) withdrawAccountNameLabel.innerText = isNgn ? "Verified Account Name" : "Verified MoMo Name";
+if(document.getElementById("withdrawAccountNumber")) withdrawAccountNumber.placeholder = isNgn ? "Enter 10-digit account number" : "Enter MTN MoMo number";
+if(document.getElementById("withdrawAccountName")) withdrawAccountName.placeholder = isNgn ? "Verified bank account name will appear here" : "Verified MoMo name will appear here";
+if(document.getElementById("withdrawVerifyBtn")) withdrawVerifyBtn.innerText = isNgn ? "Verify Bank Account" : "Verify MoMo Name";
 if(document.getElementById("withdrawSavedMethodBox")){
 withdrawSavedMethodBox.innerHTML = isNgn
-? "<b>NGN rule:</b> Withdrawals must use Nigerian bank transfer details."
-: "<b>GHS rule:</b> Withdrawals must use MTN Mobile Money details.";
+? "<b>NGN rule:</b> Choose bank, enter account number, then verify the account name before withdrawal."
+: "<b>GHS rule:</b> Enter MTN Mobile Money number, then verify the MoMo account name before withdrawal.";
+}
+resetWithdrawalVerification();
+}
+
+function nigerianBankOptionsHtml(){
+let banks = [
+["Access Bank","044"],
+["Citibank Nigeria","023"],
+["Ecobank Nigeria","050"],
+["Fidelity Bank","070"],
+["First Bank of Nigeria","011"],
+["First City Monument Bank","214"],
+["Guaranty Trust Bank","058"],
+["Keystone Bank","082"],
+["Kuda Microfinance Bank","50211"],
+["Moniepoint Microfinance Bank","50515"],
+["OPay Microfinance Bank","999992"],
+["Polaris Bank","076"],
+["Stanbic IBTC Bank","221"],
+["Sterling Bank","232"],
+["Union Bank of Nigeria","032"],
+["United Bank for Africa","033"],
+["Unity Bank","215"],
+["Wema Bank","035"],
+["Zenith Bank","057"]
+];
+return '<option value="">Select bank</option>'+banks.map(bank=>`<option value="${bank[0]}" data-code="${bank[1]}">${bank[0]}</option>`).join("");
+}
+
+function resetWithdrawalVerification(){
+window.withdrawState = window.withdrawState || {};
+window.withdrawState.payoutVerified = false;
+window.withdrawState.payoutDetails = null;
+if(document.getElementById("withdrawAccountName")) withdrawAccountName.value = "";
+if(document.getElementById("withdrawVerifiedConfirm")) withdrawVerifiedConfirm.checked = false;
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Verify payout details before continuing.";
+}
+
+function selectedWithdrawProviderCode(){
+let select = document.getElementById("withdrawProvider");
+if(!select) return "";
+let option = select.options[select.selectedIndex];
+return option ? option.dataset.code || "" : "";
+}
+
+function updateWithdrawVerificationConfirm(){
+if(!window.withdrawState || !window.withdrawState.payoutDetails) return;
+window.withdrawState.payoutVerified = !!(document.getElementById("withdrawVerifiedConfirm") && withdrawVerifiedConfirm.checked);
+}
+
+async function verifyWithdrawalPayout(){
+let currency = document.getElementById("withdrawCurrency") ? withdrawCurrency.value : "GHS";
+let providerName = document.getElementById("withdrawProvider") ? withdrawProvider.value.trim() : "";
+let providerCode = selectedWithdrawProviderCode();
+let accountNumber = document.getElementById("withdrawAccountNumber") ? withdrawAccountNumber.value.trim().replace(/\s+/g,"") : "";
+if(currency === "NGN" && !providerCode) return alert("Select bank name");
+if(!accountNumber) return alert(currency === "NGN" ? "Enter account number" : "Enter MoMo number");
+if(currency === "NGN" && !/^[0-9]{10}$/.test(accountNumber)) return alert("Enter a valid 10-digit Nigerian account number");
+if(currency === "GHS" && !/^[0-9]{9,15}$/.test(accountNumber)) return alert("Enter a valid MTN MoMo number");
+
+setLoading("withdrawVerifyBtn", true, "Verifying...");
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Verifying account name...";
+try{
+let endpoint = currency === "NGN" ? "/verify-ngn-bank" : "/verify-ghs-momo";
+let result = await callPushBackend(endpoint, {
+currency,
+bankName: providerName,
+bankCode: providerCode,
+network: providerName,
+accountNumber,
+momoNumber: accountNumber
+});
+if(!result || result.ok === false) throw new Error((result && (result.message || result.error)) || "Verification failed");
+let accountName = result.accountName || result.verifiedAccountName || result.momoName || "";
+if(!accountName) throw new Error("Verification failed. Account name was not returned.");
+let payoutDetails = {
+currency,
+paymentMethod: currency === "NGN" ? "Bank Transfer" : "MTN Mobile Money",
+bankName: currency === "NGN" ? (result.bankName || providerName) : "",
+bankCode: currency === "NGN" ? (result.bankCode || providerCode) : "",
+network: currency === "GHS" ? "MTN Mobile Money" : "",
+accountNumber,
+momoNumber: currency === "GHS" ? accountNumber : "",
+verifiedAccountName: accountName,
+verifiedAt: new Date().toLocaleString(),
+verificationProvider: result.provider || (currency === "NGN" ? "Paystack/Flutterwave" : "MoMo Name Enquiry")
+};
+window.withdrawState.payoutDetails = payoutDetails;
+window.withdrawState.payoutVerified = false;
+if(document.getElementById("withdrawAccountName")) withdrawAccountName.value = accountName;
+if(document.getElementById("withdrawVerifiedConfirm")) withdrawVerifiedConfirm.checked = false;
+if(document.getElementById("withdrawVerificationStatus")){
+withdrawVerificationStatus.innerHTML = `<b>Verified:</b> ${escapeHtml(accountName)}. Tick confirmation to continue.`;
+}
+showToast("Account name verified");
+}catch(error){
+resetWithdrawalVerification();
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Verification failed: "+error.message;
+alert("Verification failed: "+error.message);
+}finally{
+setLoading("withdrawVerifyBtn", false);
 }
 }
 
@@ -4449,23 +4656,17 @@ if(preview.amountValue > preview.available) return alert("Amount is higher than 
 showWithdrawStep(3);
 }
 
-function toggleWithdrawAccountFields(){
-let usePreferred = document.getElementById("withdrawPaymentMethod") && withdrawPaymentMethod.value === "preferred";
-["withdrawProvider","withdrawAccountName","withdrawAccountNumber"].forEach(id=>{
-let input = document.getElementById(id);
-if(input) input.disabled = usePreferred;
-});
-}
-
 function getWithdrawAccountDetails(){
 let currency = document.getElementById("withdrawCurrency") ? withdrawCurrency.value : "GHS";
-let usePreferred = false;
+let payout = window.withdrawState && window.withdrawState.payoutDetails ? window.withdrawState.payoutDetails : null;
 return {
-usePreferred,
 paymentMethodValue: currency === "NGN" ? "Bank Transfer" : "MTN Mobile Money",
-providerValue: currency === "NGN" ? withdrawProvider.value.trim() : "MTN Mobile Money",
-accountNameValue: withdrawAccountName.value.trim(),
-accountNumberValue: withdrawAccountNumber.value.trim()
+providerValue: payout ? (payout.bankName || payout.network || "") : (withdrawProvider.value || "").trim(),
+providerCode: payout ? (payout.bankCode || "") : selectedWithdrawProviderCode(),
+accountNameValue: payout ? payout.verifiedAccountName : "",
+accountNumberValue: payout ? payout.accountNumber : (withdrawAccountNumber.value || "").trim(),
+payoutDetails: payout,
+payoutVerified: !!(window.withdrawState && window.withdrawState.payoutVerified)
 };
 }
 
@@ -4475,17 +4676,18 @@ let account = getWithdrawAccountDetails();
 if(!preview.amountValue || preview.amountValue <= 0) return alert("Enter a valid withdrawal amount");
 if(preview.amountValue > preview.available) return alert("Insufficient "+preview.currency+" balance");
 if(!account.providerValue) return alert("Enter bank or MoMo provider");
-if(!account.accountNameValue) return alert("Enter account holder name");
+if(!account.accountNameValue) return alert("Verify payout account name first");
 if(!account.accountNumberValue) return alert("Enter account or MoMo number");
+if(!account.payoutDetails || !account.payoutVerified) return alert("Confirm the verified payout name before continuing");
 
 withdrawSummary.innerHTML = `
 <div class="flow-summary-grid">
 <div><span>Wallet</span><b>${preview.currency}</b></div>
 <div><span>Amount</span><b>${preview.currency} ${format(preview.amountValue)}</b></div>
 <div><span>Available</span><b>${preview.currency} ${format(preview.available)}</b></div>
-<div><span>Provider</span><b>${account.providerValue}</b></div>
-<div><span>Account Name</span><b>${account.accountNameValue}</b></div>
-<div><span>Account Number</span><b>${account.accountNumberValue}</b></div>
+<div><span>${preview.currency === "NGN" ? "Bank Name" : "Network"}</span><b>${account.providerValue}</b></div>
+<div><span>${preview.currency === "NGN" ? "Verified Account Name" : "Verified MoMo Name"}</span><b>${account.accountNameValue}</b></div>
+<div><span>${preview.currency === "NGN" ? "Account Number" : "MoMo Number"}</span><b>${account.accountNumberValue}</b></div>
 </div>
 `;
 showWithdrawStep(4);
@@ -4500,10 +4702,13 @@ let preview = getWithdrawPreview();
 let account = getWithdrawAccountDetails();
 if(!preview.amountValue || preview.amountValue <= 0) return alert("Enter a valid withdrawal amount");
 if(!account.providerValue) return alert("Enter bank or MoMo provider");
-if(!account.accountNameValue) return alert("Enter account holder name");
+if(!account.accountNameValue) return alert("Verify payout account name first");
 if(!account.accountNumberValue) return alert("Enter account or MoMo number");
+if(!account.payoutDetails || !account.payoutVerified) return alert("Confirm the verified payout name before continuing");
 if(!(await hasEnoughBalance(currentUser.uid, preview.currency, preview.amountValue))) return alert("Insufficient "+preview.currency+" balance");
-if(!confirm("Submit withdrawal request?\n\nAmount: "+preview.currency+" "+format(preview.amountValue)+"\nMethod: "+account.paymentMethodValue+"\nAccount: "+account.accountNameValue+" / "+account.accountNumberValue)) return;
+if(!confirm("Submit withdrawal request?\n\nAmount: "+preview.currency+" "+format(preview.amountValue)+"\nMethod: "+account.paymentMethodValue+"\nVerified name: "+account.accountNameValue+"\nAccount: "+account.accountNumberValue)) return;
+let pinCheck = await requireWithdrawalPinVerification("Enter your withdrawal PIN to submit this withdrawal request.");
+if(!pinCheck) return;
 
 walletActionBusy = true;
 setLoading("withdrawBtn", true, "Processing...");
@@ -4517,8 +4722,18 @@ currency: preview.currency,
 amount: preview.amountValue,
 paymentMethod: account.paymentMethodValue,
 paymentProvider: account.providerValue,
+paymentProviderCode: account.providerCode || "",
 paymentAccountName: account.accountNameValue,
 paymentAccountNumber: account.accountNumberValue,
+payoutDetails: {
+...account.payoutDetails,
+amount: preview.amountValue,
+userUid: currentUser.uid,
+orderId: requestId
+},
+payoutVerificationStatus: "verified",
+payoutVerified: true,
+withdrawalPinVerified: true,
 availableBalanceAtRequest: preview.available,
 balanceAfterApproval: preview.available - preview.amountValue,
 clientRequestKey: requestId
@@ -4586,15 +4801,15 @@ if(status === "Processing"){
 title = "Withdrawal Processing";
 message = "Admin is processing your payout now.";
 }
-if(status === "Successful"){
-title = "Withdrawal Completed";
+if(status === "Successful" || status === "Paid"){
+title = status === "Paid" ? "Withdrawal Paid" : "Withdrawal Completed";
 message = "Your withdrawal has been completed.";
 localStorage.removeItem("activeWithdrawRequestId");
 if(!window.withdrawSuccessRedirected){
 window.withdrawSuccessRedirected = true;
 setTimeout(()=>{
 openTransactionSuccess({
-title: "Withdrawal Successful",
+title: status === "Paid" ? "Withdrawal Paid" : "Withdrawal Successful",
 message: "Your withdrawal has been completed successfully.",
 type: "Withdrawal",
 reference: item.requestId || item.id,
@@ -4618,7 +4833,7 @@ localStorage.removeItem("activeWithdrawRequestId");
 }
 if(document.getElementById("withdrawWaitingTitle")) withdrawWaitingTitle.innerText = title;
 if(document.getElementById("withdrawWaitingMessage")) withdrawWaitingMessage.innerText = message;
-if(document.getElementById("withdrawDoneIcon")) withdrawDoneIcon.innerText = status === "Successful" ? "DONE" : (status === "Failed" ? "REJECTED" : "PENDING");
+if(document.getElementById("withdrawDoneIcon")) withdrawDoneIcon.innerText = (status === "Successful" || status === "Paid") ? "DONE" : (status === "Failed" ? "REJECTED" : "PENDING");
 withdrawLiveStatus.innerHTML = `
 <div class="flow-summary-grid">
 <div><span>Reference</span><b>${item.requestId || item.id}</b></div>
@@ -5435,6 +5650,7 @@ return Number.isFinite(parsed) ? parsed : 0;
 
 function adminQueueStatus(item){
 let status = String(item.status || "Pending").toLowerCase();
+if(status === "paid") return "closed";
 if(status.includes("completed") || status.includes("successful") || status.includes("failed") || status.includes("rejected") || status.includes("cancelled") || status.includes("credited")) return "closed";
 if(status === "pending" || status.includes("submitted") || status.includes("awaiting admin")) return "pending";
 if(status.includes("created") || status.includes("paid") || status.includes("settlement in progress") || status.includes("settlement processing") || status === "approved" || status === "processing") return "active";
@@ -5793,6 +6009,29 @@ return `
 `;
 }
 
+function withdrawalPayoutRows(item, used){
+let payout = item.payoutDetails || {};
+if(item.currency === "GHS"){
+return [
+compactDetailRow("Network", payout.network || item.paymentProvider || "MTN Mobile Money", used, ["payoutDetails.network","paymentProvider"]),
+compactDetailRow("MoMo Number", payout.momoNumber || item.paymentAccountNumber || item.accountNumber, used, ["payoutDetails.momoNumber","paymentAccountNumber","accountNumber"]),
+compactDetailRow("Verified MoMo Name", payout.verifiedAccountName || item.paymentAccountName, used, ["payoutDetails.verifiedAccountName","paymentAccountName"]),
+compactDetailRow("Amount", (item.currency || "GHS")+" "+format(item.amount || 0), used, ["amount","currency"]),
+compactDetailRow("User UID", item.customerId || item.userUid, used, ["customerId","userUid"]),
+compactDetailRow("PIN Verified", item.withdrawalPinVerified ? "Yes" : "No", used, ["withdrawalPinVerified"])
+];
+}
+return [
+compactDetailRow("Bank Name", payout.bankName || item.paymentProvider || item.bankName, used, ["payoutDetails.bankName","paymentProvider","bankName"]),
+compactDetailRow("Bank Code", payout.bankCode || item.paymentProviderCode || item.bankCode, used, ["payoutDetails.bankCode","paymentProviderCode","bankCode"]),
+compactDetailRow("Account Number", payout.accountNumber || item.paymentAccountNumber || item.accountNumber, used, ["payoutDetails.accountNumber","paymentAccountNumber","accountNumber"]),
+compactDetailRow("Verified Account Name", payout.verifiedAccountName || item.paymentAccountName, used, ["payoutDetails.verifiedAccountName","paymentAccountName"]),
+compactDetailRow("Amount", (item.currency || "NGN")+" "+format(item.amount || 0), used, ["amount","currency"]),
+compactDetailRow("User UID", item.customerId || item.userUid, used, ["customerId","userUid"]),
+compactDetailRow("PIN Verified", item.withdrawalPinVerified ? "Yes" : "No", used, ["withdrawalPinVerified"])
+];
+}
+
 function orderExtraDetails(item, usedKeys){
 let hidden = new Set(["adminActionHistory", ...Array.from(usedKeys)]);
 let rows = Object.keys(item)
@@ -5869,6 +6108,8 @@ compactDetailRow("Account Number", firstOrderValue(item, ["settlementAccountNumb
 compactDetailRow("Bank/Provider", firstOrderValue(item, ["settlementBank","paymentProvider","bankName","provider"]), used, ["settlementBank","paymentProvider","bankName","provider"])
 ];
 
+let payoutRows = item.type === "withdraw" ? withdrawalPayoutRows(item, used) : [];
+
 let customerRows = [
 compactDetailRow("Name", firstOrderValue(item, ["customerName","username","name","senderName"]), used, ["customerName","username","name"]),
 compactDetailRow("Email", firstOrderValue(item, ["customerEmail","email","senderEmail"]), used, ["customerEmail","email","senderEmail"]),
@@ -5905,6 +6146,7 @@ return `
 <div class="receipt-mini-grid">${heroRows.filter(Boolean).slice(0, 4).join("")}</div>
 ${receiptButton}
 ${orderDetailSection("Payment Details", "&bull;", paymentRows)}
+${payoutRows.length ? orderDetailSection(item.currency === "GHS" ? "MoMo Payout Details" : "Bank Payout Details", "&bull;", payoutRows) : ""}
 ${orderDetailSection("Customer Details", "&bull;", customerRows)}
 
 <details class="receipt-more receipt-compact-details">
@@ -5923,7 +6165,8 @@ function orderDetailActions(collection, item){
 if(!isAdmin) return "";
 let status = String(item.status || "").toLowerCase();
 let closed = adminQueueStatus(item) === "closed";
-if(closed) return '<div class="admin-queue-note">This order is closed and stored in records.</div>';
+let payoutButton = collection === "walletRequests" && item.type === "withdraw" ? `<button class="outline-btn" onclick="copyWithdrawalPayoutDetails('${item.id || item.requestId || ""}')">Copy Payout Details</button>` : "";
+if(closed) return '<div class="admin-queue-note">This order is closed and stored in records.</div>'+payoutButton;
 
 if(collection === "transactions"){
 return `
@@ -5949,8 +6192,9 @@ return `
 if(collection === "walletRequests" && item.type === "withdraw"){
 return `
 <div class="admin-actions">
-<button onclick="detailWithdrawalProcessing('${item.id}')">Processing</button>
-<button onclick="detailCompleteWithdrawal('${item.id}')">Complete Withdrawal</button>
+${payoutButton}
+<button onclick="detailWithdrawalProcessing('${item.id}')">Approve / Processing</button>
+<button onclick="detailCompleteWithdrawal('${item.id}')">Mark as Paid</button>
 <button class="danger-btn" onclick="detailRejectWithdrawal('${item.id}')">Reject Withdrawal</button>
 </div>
 `;
@@ -6000,6 +6244,41 @@ reloadOrderDetailSoon();
 async function detailRejectWithdrawal(id){
 await rejectWithdrawal(id);
 reloadOrderDetailSoon();
+}
+
+async function copyWithdrawalPayoutDetails(id){
+try{
+let doc = await db.collection("walletRequests").doc(id).get();
+if(!doc.exists) return alert("Withdrawal request not found");
+let item = {id:doc.id, ...doc.data()};
+let payout = item.payoutDetails || {};
+let isGhs = item.currency === "GHS";
+let text = isGhs
+? `GHS WITHDRAWAL MOMO PAYOUT DETAILS
+
+Network: ${payout.network || item.paymentProvider || "MTN Mobile Money"}
+Momo Number: ${payout.momoNumber || item.paymentAccountNumber || ""}
+Momo Name: ${payout.verifiedAccountName || item.paymentAccountName || ""}
+Amount: ${item.currency || "GHS"} ${format(item.amount || 0)}
+Order ID: ${item.requestId || item.id || ""}
+User UID: ${item.customerId || ""}`
+: `NGN WITHDRAWAL PAYOUT DETAILS
+
+Bank Name: ${payout.bankName || item.paymentProvider || ""}
+Account Number: ${payout.accountNumber || item.paymentAccountNumber || ""}
+Account Name: ${payout.verifiedAccountName || item.paymentAccountName || ""}
+Amount: ${item.currency || "NGN"} ${format(item.amount || 0)}
+Order ID: ${item.requestId || item.id || ""}
+User UID: ${item.customerId || ""}`;
+if(navigator.clipboard && navigator.clipboard.writeText){
+await navigator.clipboard.writeText(text);
+showToast("Payout details copied");
+}else{
+prompt("Copy payout details", text);
+}
+}catch(error){
+alert("Could not copy payout details: "+error.message);
+}
 }
 
 async function loadOrderDetailPage(){
@@ -6427,7 +6706,11 @@ deposit: rows.filter(item => item.type === "deposit" || item.type === "manual-de
 withdraw: rows.filter(item => item.type === "withdraw").length,
 transfer: rows.filter(item => item.type === "internal-transfer").length,
 pending: rows.filter(item => item.type === "manual-deposit" ? item.status === "pending" : normalizeWalletStatus(item.status) === "Pending").length,
-successful: rows.filter(item => item.type === "manual-deposit" ? item.status === "approved" : normalizeWalletStatus(item.status) === "Successful").length,
+successful: rows.filter(item => {
+if(item.type === "manual-deposit") return item.status === "approved";
+let status = normalizeWalletStatus(item.status);
+return status === "Successful" || status === "Paid";
+}).length,
 failed: rows.filter(item => item.type === "manual-deposit" ? item.status === "rejected" : normalizeWalletStatus(item.status) === "Failed").length
 };
 
@@ -6716,7 +6999,7 @@ let requestDoc = await transaction.get(requestRef);
 if(!requestDoc.exists) throw new Error("Withdrawal request not found");
 let request = requestDoc.data();
 let status = normalizeWalletStatus(request.status);
-if(status === "Successful" || status === "Failed") throw new Error("This withdrawal has already been closed");
+if(status === "Successful" || status === "Paid" || status === "Failed") throw new Error("This withdrawal has already been closed");
 
 let amountValue = Number(request.amount || 0);
 if(!amountValue || amountValue <= 0) throw new Error("Withdrawal amount is invalid");
@@ -6736,9 +7019,11 @@ update[field] = available - amountValue;
 
 transaction.set(balanceRef, update, {merge:true});
 transaction.set(requestRef, {
-status: "Successful",
+status: "Paid",
 completedBy: currentUser.email,
+paidBy: currentUser.email,
 completedAt: new Date().toLocaleString(),
+paidAt: new Date().toLocaleString(),
 updatedAt: new Date().toLocaleString(),
 balanceBeforeCompletion: available,
 balanceAfterCompletion: available - amountValue
@@ -6754,9 +7039,13 @@ amount: amountValue,
 converted: amountValue,
 status: "Completed",
 paymentProvider: request.paymentProvider,
+paymentProviderCode: request.paymentProviderCode || "",
 paymentMethod: request.paymentMethod,
 paymentAccountName: request.paymentAccountName,
 paymentAccountNumber: request.paymentAccountNumber,
+payoutDetails: request.payoutDetails || {},
+payoutVerified: request.payoutVerified === true,
+withdrawalPinVerified: request.withdrawalPinVerified === true,
 date: new Date().toLocaleString(),
 createdAt: request.createdAt || "",
 completedAt: new Date().toLocaleString()
@@ -6775,7 +7064,7 @@ userId: request.customerId,
 title: "Withdrawal Completed",
 body: "Your "+request.currency+" "+format(amountValue)+" withdrawal has been completed.",
 link: orderDetailUrl("walletRequests", id),
-data: {requestId:id, collection:"walletRequests", recordId:id, type:"withdraw", status:"Successful"}
+data: {requestId:id, collection:"walletRequests", recordId:id, type:"withdraw", status:"Paid"}
 };
 });
 
@@ -6802,7 +7091,7 @@ let requestDoc = await transaction.get(requestRef);
 if(!requestDoc.exists) throw new Error("Withdrawal request not found");
 let request = requestDoc.data();
 let status = normalizeWalletStatus(request.status);
-if(status === "Successful" || status === "Failed") throw new Error("This withdrawal has already been closed");
+if(status === "Successful" || status === "Paid" || status === "Failed") throw new Error("This withdrawal has already been closed");
 
 transaction.set(requestRef, {
 status: "Failed",
@@ -7957,7 +8246,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260528flutterwave1")
+navigator.serviceWorker.register("./sw.js?v=20260529payoutverify1")
 .then(registration => registration.update())
 .catch(() => {});
 }

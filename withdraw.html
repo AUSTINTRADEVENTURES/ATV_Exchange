@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="./styles.css?v=20260522swapfix1">
+<link rel="stylesheet" href="./styles.css?v=20260529payoutverify1">
 </head>
 
 <body>
@@ -64,13 +64,19 @@
 <section id="withdrawStep3" class="flow-panel hidden">
 <span class="flow-step-label">Step 3 - Select Payment Method</span>
 <h2>Where should we send your money?</h2>
-<select id="withdrawPaymentMethod" onchange="toggleWithdrawAccountFields()">
-<option value="new">Enter payment method for this withdrawal</option>
+<input id="withdrawPaymentMethod" type="hidden" value="MTN Mobile Money">
+<div id="withdrawSavedMethodBox" class="flow-summary">Verify your payout account before continuing.</div>
+<label id="withdrawProviderLabel" for="withdrawProvider">Network</label>
+<select id="withdrawProvider" onchange="resetWithdrawalVerification()">
+<option value="MTN Mobile Money" data-code="MTN">MTN Mobile Money</option>
 </select>
-<div id="withdrawSavedMethodBox" class="flow-summary">Saved payment method will appear here if available.</div>
-<input id="withdrawProvider" placeholder="Bank / MoMo provider">
-<input id="withdrawAccountName" placeholder="Account holder name">
-<input id="withdrawAccountNumber" placeholder="Account / MoMo number">
+<label id="withdrawAccountNumberLabel" for="withdrawAccountNumber">MoMo Number</label>
+<input id="withdrawAccountNumber" inputmode="numeric" placeholder="MoMo number" oninput="resetWithdrawalVerification()">
+<label id="withdrawAccountNameLabel" for="withdrawAccountName">Verified Account Name</label>
+<input id="withdrawAccountName" readonly placeholder="Verified account name will appear here">
+<button id="withdrawVerifyBtn" type="button" onclick="verifyWithdrawalPayout()">Verify Account Name</button>
+<label class="confirm-check"><input id="withdrawVerifiedConfirm" type="checkbox" onchange="updateWithdrawVerificationConfirm()"> I confirm this verified payout name is correct.</label>
+<div id="withdrawVerificationStatus" class="help"></div>
 <button class="secondary-link" onclick="showWithdrawStep(2)">Back</button>
 <button onclick="goToWithdrawReviewStep()">Continue</button>
 </section>
@@ -105,7 +111,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="./app.js?v=20260522swapfix1"></script>
+<script src="./app.js?v=20260529payoutverify1"></script>
 </body>
 </html>
 

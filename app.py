@@ -4,6 +4,10 @@ import firebase_admin
 from firebase_admin import auth, credentials, firestore, messaging
 import os
 import time
+import json
+from urllib import request as urlrequest
+from urllib import parse as urlparse
+from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 
 app = Flask(__name__)
@@ -11,6 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
 PUBLIC_FILES = {
     "index.html",
+    "login.html",
     "signup.html",
     "exchange.html",
     "convert.html",
@@ -33,6 +38,11 @@ PUBLIC_FILES = {
     "security.html",
     "withdrawal-pin.html",
     "about.html",
+    "contact.html",
+    "privacy.html",
+    "terms.html",
+    "refund.html",
+    "kyc-aml.html",
     "customers.html",
     "profit.html",
     "rates.html",
@@ -287,6 +297,114 @@ def clean_money(value):
     return round(number_value(value), 2)
 
 
+def to_base36(value):
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    value = int(value or 0)
+    if value == 0:
+        return "0"
+    result = ""
+    while value:
+        value, remainder = divmod(value, 36)
+        result = digits[remainder] + result
+    return result
+
+
+def pin_hash(value):
+    hash_value = 5381
+    for char in str(value or ""):
+        hash_value = ((hash_value << 5) + hash_value) + ord(char)
+    return to_base36(abs(hash_value))
+
+
+def verify_withdrawal_pin(user_id, raw_pin):
+    pin = str(raw_pin or "").strip()
+    if not pin or not pin.isdigit() or len(pin) < 4 or len(pin) > 6:
+        raise PermissionError("Incorrect withdrawal PIN")
+
+    security_doc = (
+        db.collection("users")
+        .document(user_id)
+        .collection("security")
+        .document("withdrawalPin")
+        .get()
+    )
+    security_data = security_doc.to_dict() if security_doc.exists else {}
+    expected = (security_data or {}).get("withdrawalPinHash")
+
+    if not expected:
+        user_doc = db.collection("users").document(user_id).get()
+        user_data = user_doc.to_dict() if user_doc.exists else {}
+        expected = (user_data or {}).get("withdrawalPinHash")
+
+    if not expected:
+        raise PermissionError("Withdrawal PIN is required")
+
+    if pin_hash(user_id + "-" + pin) != expected:
+        raise PermissionError("Incorrect withdrawal PIN")
+
+    return True
+
+
+def require_signed_in_request():
+    try:
+        decoded = verify_request_user()
+    except Exception:
+        decoded = None
+    if not decoded:
+        raise PermissionError("Invalid Firebase token")
+    return decoded
+
+
+def http_json(method, url, headers=None, body=None, timeout=18):
+    payload = None
+    if body is not None:
+        payload = json.dumps(body).encode("utf-8")
+    req = urlrequest.Request(url, data=payload, method=method.upper())
+    req.add_header("Accept", "application/json")
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+    for key, value in (headers or {}).items():
+        req.add_header(key, value)
+    try:
+        with urlrequest.urlopen(req, timeout=timeout) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw or "{}")
+    except HTTPError as exc:
+        try:
+            raw = exc.read().decode("utf-8")
+            data = json.loads(raw or "{}")
+        except Exception:
+            data = {}
+        message = data.get("message") or data.get("error") or "Verification provider rejected the request"
+        raise ValueError(message)
+    except URLError as exc:
+        raise ValueError("Verification provider is unavailable: " + str(exc.reason))
+
+
+def verified_name_from_response(data):
+    if not isinstance(data, dict):
+        return ""
+    candidates = [
+        data.get("account_name"),
+        data.get("accountName"),
+        data.get("accountNameEnquiry"),
+        data.get("momoName"),
+        data.get("name"),
+    ]
+    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
+    candidates.extend([
+        nested.get("account_name"),
+        nested.get("accountName"),
+        nested.get("full_name"),
+        nested.get("name"),
+        nested.get("momoName"),
+    ])
+    for value in candidates:
+        if value:
+            return str(value).strip()
+    return ""
+
+
 def can_serve_public_file(filename):
     clean_name = filename.split("?", 1)[0].strip("/")
     if not clean_name or clean_name.startswith(".") or ".." in clean_name:
@@ -317,6 +435,123 @@ def page_diagnostics():
             for page in pages
         ],
     })
+
+
+@app.post("/verify-ngn-bank")
+def verify_ngn_bank():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+
+    data = request.get_json(silent=True) or {}
+    account_number = str(data.get("accountNumber") or "").strip().replace(" ", "")
+    bank_code = str(data.get("bankCode") or "").strip()
+    bank_name = str(data.get("bankName") or "").strip()
+    if not account_number.isdigit() or len(account_number) != 10:
+        return json_error("Enter a valid 10-digit Nigerian account number")
+    if not bank_code:
+        return json_error("Bank code is required")
+
+    paystack_secret = os.environ.get("PAYSTACK_SECRET_KEY", "").strip()
+    flutterwave_secret = os.environ.get("FLUTTERWAVE_SECRET_KEY", "").strip()
+    try:
+        if paystack_secret:
+            query = urlparse.urlencode({"account_number": account_number, "bank_code": bank_code})
+            result = http_json(
+                "GET",
+                "https://api.paystack.co/bank/resolve?" + query,
+                headers={"Authorization": "Bearer " + paystack_secret},
+            )
+            account_name = verified_name_from_response(result)
+            if not account_name:
+                return json_error("Bank account name could not be verified", 400)
+            return jsonify({
+                "ok": True,
+                "provider": "paystack",
+                "bankName": bank_name,
+                "bankCode": bank_code,
+                "accountNumber": account_number,
+                "accountName": account_name,
+                "verifiedAccountName": account_name,
+                "userId": decoded.get("uid", ""),
+            })
+
+        if flutterwave_secret:
+            result = http_json(
+                "POST",
+                "https://api.flutterwave.com/v3/accounts/resolve",
+                headers={"Authorization": "Bearer " + flutterwave_secret},
+                body={"account_number": account_number, "account_bank": bank_code},
+            )
+            account_name = verified_name_from_response(result)
+            if not account_name:
+                return json_error("Bank account name could not be verified", 400)
+            return jsonify({
+                "ok": True,
+                "provider": "flutterwave",
+                "bankName": bank_name,
+                "bankCode": bank_code,
+                "accountNumber": account_number,
+                "accountName": account_name,
+                "verifiedAccountName": account_name,
+                "userId": decoded.get("uid", ""),
+            })
+
+        return json_error("Bank account verification is not configured on backend", 503)
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+    except Exception as exc:
+        return json_error("Bank verification failed: " + str(exc), 500)
+
+
+@app.post("/verify-ghs-momo")
+def verify_ghs_momo():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+
+    data = request.get_json(silent=True) or {}
+    momo_number = str(data.get("momoNumber") or data.get("accountNumber") or "").strip().replace(" ", "")
+    network = str(data.get("network") or "MTN Mobile Money").strip() or "MTN Mobile Money"
+    if not momo_number.isdigit() or len(momo_number) < 9 or len(momo_number) > 15:
+        return json_error("Enter a valid MTN MoMo number")
+
+    momo_url = os.environ.get("GHANA_MOMO_VERIFY_URL", "").strip()
+    momo_token = os.environ.get("GHANA_MOMO_VERIFY_TOKEN", "").strip()
+    if not momo_url:
+        return json_error("Mobile Money Account Verification is not configured on backend", 503)
+
+    headers = {}
+    if momo_token:
+        headers["Authorization"] = "Bearer " + momo_token
+
+    try:
+        result = http_json(
+            "POST",
+            momo_url,
+            headers=headers,
+            body={"network": "MTN", "momoNumber": momo_number, "accountNumber": momo_number},
+        )
+        account_name = verified_name_from_response(result)
+        if not account_name:
+            return json_error("MoMo account name could not be verified", 400)
+        return jsonify({
+            "ok": True,
+            "provider": "momo-name-enquiry",
+            "network": network,
+            "momoNumber": momo_number,
+            "accountNumber": momo_number,
+            "accountName": account_name,
+            "momoName": account_name,
+            "verifiedAccountName": account_name,
+            "userId": decoded.get("uid", ""),
+        })
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+    except Exception as exc:
+        return json_error("MoMo verification failed: " + str(exc), 500)
 
 
 @app.get("/")
@@ -552,6 +787,10 @@ def internal_transfer():
         return json_error("Invalid currency")
     if amount <= 0:
         return json_error("Enter a valid amount")
+    try:
+        verify_withdrawal_pin(sender_id, data.get("withdrawalPin"))
+    except PermissionError as exc:
+        return json_error(str(exc), 403)
 
     sender_ref = db.collection("users").document(sender_id)
     recipient_ref = db.collection("users").document(recipient_id)

@@ -1,8 +1,8 @@
-﻿{
+{
   "name": "ATV Exchange",
   "short_name": "ATV",
   "id": "/index.html",
-  "start_url": "./index.html?v=20260528flutterwave1",
+  "start_url": "./index.html?v=20260529payoutverify1",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

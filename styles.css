@@ -242,6 +242,17 @@ label{display:block;margin-top:10px;color:#071126;}
 .public-info-grid b,.public-contact-list b{color:#fff;}
 .public-info-grid span,.public-contact-list span{color:#b7c8c1;overflow-wrap:anywhere;}
 .public-note{padding:14px;border-radius:18px;background:rgba(22,199,132,.1);border:1px solid rgba(22,199,132,.22);}
+.pin-verify-overlay{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:18px;background:rgba(0,0,0,.66);backdrop-filter:blur(8px);}
+.pin-verify-card{position:relative;width:min(420px,100%);padding:22px;border-radius:22px;background:linear-gradient(145deg,#111816,#07100d);border:1px solid rgba(255,255,255,.1);color:#fff;box-shadow:0 28px 80px rgba(0,0,0,.42);}
+.pin-verify-card h3{margin:8px 0 6px;color:#fff;font-size:24px;}
+.pin-verify-card p{color:#b7c8c1;line-height:1.5;margin-bottom:12px;}
+.pin-verify-card .help{min-height:18px;color:#ffb4a8;}
+.pin-verify-card .password-field input{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:#fff;}
+.pin-verify-card .password-field button{color:#fff;background:rgba(255,255,255,.08);}
+.pin-close{position:absolute;right:14px;top:12px;width:34px;height:34px;margin:0;padding:0;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;font-size:22px;}
+.confirm-check{display:flex;align-items:flex-start;gap:10px;margin:12px 0;padding:12px;border-radius:14px;background:rgba(22,199,132,.09);border:1px solid rgba(22,199,132,.18);font-weight:800;color:inherit;}
+.confirm-check input{width:auto;margin:2px 0 0;accent-color:#16C784;}
+input[readonly]{background:#eef5f1;color:#102018;font-weight:800;}
 
 @media(max-width:880px){
 .public-header{position:relative;align-items:flex-start;flex-direction:column;padding:14px 16px;}
