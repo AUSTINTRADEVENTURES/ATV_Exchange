@@ -61,7 +61,11 @@ PUBLIC_FILES = {
 
 ALLOWED_ORIGINS = [
     "https://atvexchange.pythonanywhere.com",
+    "https://www.atvexchange.pythonanywhere.com",
+    "https://atvexchange.net",
+    "https://www.atvexchange.net",
     "https://austintradeventures.github.io",
+    "https://austintradeventures.github.io/ATV_Exchange",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 ]
@@ -418,6 +422,24 @@ def can_serve_public_file(filename):
 @app.get("/health")
 def health():
     return jsonify({"ok": True, "service": "ATV Exchange Push Backend"})
+
+
+@app.get("/diagnostics/payout-verification")
+def payout_verification_diagnostics():
+    return jsonify({
+        "ok": True,
+        "service": "ATV Exchange Payout Verification",
+        "ngnBankVerification": {
+            "configured": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip() or os.environ.get("FLUTTERWAVE_SECRET_KEY", "").strip()),
+            "paystack": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip()),
+            "flutterwave": bool(os.environ.get("FLUTTERWAVE_SECRET_KEY", "").strip()),
+        },
+        "ghsMomoVerification": {
+            "configured": bool(os.environ.get("GHANA_MOMO_VERIFY_URL", "").strip()),
+            "hasToken": bool(os.environ.get("GHANA_MOMO_VERIFY_TOKEN", "").strip()),
+        },
+        "allowedOrigins": ALLOWED_ORIGINS,
+    })
 
 
 @app.get("/diagnostics/pages")

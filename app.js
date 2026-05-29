@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260529payoutverify1";
+const appAssetVersion = "20260529verifyfix1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260529payoutverify1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260529verifyfix1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260529payoutverify1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260529verifyfix1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -1637,12 +1637,17 @@ data = {};
 }
 
 if(!response.ok){
-throw new Error(data.message || "Push backend request failed");
+let statusText = response.status ? "HTTP "+response.status : "";
+throw new Error(data.message || ("Backend request failed "+statusText).trim());
 }
 return data;
 }catch(error){
 appLog("Push backend skipped", error.message);
-return {ok:false, error:error.message};
+let message = error.message || "Backend request failed";
+if(message.toLowerCase().includes("failed to fetch") || message.toLowerCase().includes("load failed") || message.toLowerCase().includes("networkerror")){
+message = "Could not reach PythonAnywhere backend. Upload latest app.py, reload the PythonAnywhere Web app, and check CORS/domain settings.";
+}
+return {ok:false, error:message};
 }
 }
 
@@ -4605,8 +4610,17 @@ withdrawVerificationStatus.innerHTML = `<b>Verified:</b> ${escapeHtml(accountNam
 showToast("Account name verified");
 }catch(error){
 resetWithdrawalVerification();
-if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Verification failed: "+error.message;
-alert("Verification failed: "+error.message);
+let message = error.message || "Verification failed";
+if(message.toLowerCase().includes("not configured")){
+message = currency === "NGN"
+? "Bank verification is not configured. Add PAYSTACK_SECRET_KEY or FLUTTERWAVE_SECRET_KEY on PythonAnywhere, then reload the Web app."
+: "MoMo verification is not configured. Add GHANA_MOMO_VERIFY_URL on PythonAnywhere, then reload the Web app.";
+}
+if(message.toLowerCase().includes("pythonanywhere backend")){
+message += " Test this URL after reload: "+backendSettings.baseUrl+"/diagnostics/payout-verification";
+}
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Verification failed: "+message;
+alert("Verification failed: "+message);
 }finally{
 setLoading("withdrawVerifyBtn", false);
 }
@@ -8246,7 +8260,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260529payoutverify1")
+navigator.serviceWorker.register("./sw.js?v=20260529verifyfix1")
 .then(registration => registration.update())
 .catch(() => {});
 }
