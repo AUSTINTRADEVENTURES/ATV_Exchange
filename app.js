@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260529verifyfix1";
+const appAssetVersion = "20260530verifyisolate1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260529verifyfix1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260530verifyisolate1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260529verifyfix1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260530verifyisolate1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4564,18 +4564,29 @@ window.withdrawState.payoutVerified = !!(document.getElementById("withdrawVerifi
 }
 
 async function verifyWithdrawalPayout(){
-let currency = document.getElementById("withdrawCurrency") ? withdrawCurrency.value : "GHS";
-let providerName = document.getElementById("withdrawProvider") ? withdrawProvider.value.trim() : "";
+let currency = "GHS";
+try{
+let currencyEl = document.getElementById("withdrawCurrency");
+let providerEl = document.getElementById("withdrawProvider");
+let accountNumberEl = document.getElementById("withdrawAccountNumber");
+let statusEl = document.getElementById("withdrawVerificationStatus");
+let accountNameEl = document.getElementById("withdrawAccountName");
+let confirmEl = document.getElementById("withdrawVerifiedConfirm");
+
+currency = currencyEl ? currencyEl.value : "GHS";
+let providerName = providerEl ? (providerEl.value || "").trim() : "";
 let providerCode = selectedWithdrawProviderCode();
-let accountNumber = document.getElementById("withdrawAccountNumber") ? withdrawAccountNumber.value.trim().replace(/\s+/g,"") : "";
+let accountNumber = accountNumberEl ? (accountNumberEl.value || "").trim().replace(/\s+/g,"") : "";
+
+resetWithdrawalVerification();
 if(currency === "NGN" && !providerCode) return alert("Select bank name");
 if(!accountNumber) return alert(currency === "NGN" ? "Enter account number" : "Enter MoMo number");
 if(currency === "NGN" && !/^[0-9]{10}$/.test(accountNumber)) return alert("Enter a valid 10-digit Nigerian account number");
 if(currency === "GHS" && !/^[0-9]{9,15}$/.test(accountNumber)) return alert("Enter a valid MTN MoMo number");
 
 setLoading("withdrawVerifyBtn", true, "Verifying...");
-if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Verifying account name...";
-try{
+if(statusEl) statusEl.innerText = "Verifying account name...";
+
 let endpoint = currency === "NGN" ? "/verify-ngn-bank" : "/verify-ghs-momo";
 let result = await callPushBackend(endpoint, {
 currency,
@@ -4602,25 +4613,23 @@ verificationProvider: result.provider || (currency === "NGN" ? "Paystack/Flutter
 };
 window.withdrawState.payoutDetails = payoutDetails;
 window.withdrawState.payoutVerified = false;
-if(document.getElementById("withdrawAccountName")) withdrawAccountName.value = accountName;
-if(document.getElementById("withdrawVerifiedConfirm")) withdrawVerifiedConfirm.checked = false;
-if(document.getElementById("withdrawVerificationStatus")){
-withdrawVerificationStatus.innerHTML = `<b>Verified:</b> ${escapeHtml(accountName)}. Tick confirmation to continue.`;
-}
+if(accountNameEl) accountNameEl.value = accountName;
+if(confirmEl) confirmEl.checked = false;
+if(statusEl) statusEl.innerHTML = `<b>Verified:</b> ${escapeHtml(accountName)}. Tick confirmation to continue.`;
 showToast("Account name verified");
 }catch(error){
 resetWithdrawalVerification();
-let message = error.message || "Verification failed";
-if(message.toLowerCase().includes("not configured")){
-message = currency === "NGN"
-? "Bank verification is not configured. Add PAYSTACK_SECRET_KEY or FLUTTERWAVE_SECRET_KEY on PythonAnywhere, then reload the Web app."
-: "MoMo verification is not configured. Add GHANA_MOMO_VERIFY_URL on PythonAnywhere, then reload the Web app.";
+appLog("Payout verification failed", error.message || error);
+let publicMessage = "Could not verify account name, please check details or try again";
+let rawMessage = String(error.message || "");
+if(rawMessage.toLowerCase().includes("not configured")){
+publicMessage = currency === "NGN"
+? "Bank verification is not ready yet. Please try again later or contact support."
+: "MoMo name verification is not ready yet. Please try again later or contact support.";
 }
-if(message.toLowerCase().includes("pythonanywhere backend")){
-message += " Test this URL after reload: "+backendSettings.baseUrl+"/diagnostics/payout-verification";
-}
-if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Verification failed: "+message;
-alert("Verification failed: "+message);
+let statusEl = document.getElementById("withdrawVerificationStatus");
+if(statusEl) statusEl.innerText = publicMessage;
+alert(publicMessage);
 }finally{
 setLoading("withdrawVerifyBtn", false);
 }
@@ -8260,7 +8269,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260529verifyfix1")
+navigator.serviceWorker.register("./sw.js?v=20260530verifyisolate1")
 .then(registration => registration.update())
 .catch(() => {});
 }
