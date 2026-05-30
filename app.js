@@ -26,7 +26,7 @@ requestToPayEndpoint: ""
 };
 
 const backendSettings = {
-baseUrl: "https://atvexchange.pythonanywhere.com"
+baseUrl: "https://www.atvexchange.net"
 };
 
 // Cloudinary unsigned upload settings for KYC documents.
