@@ -11,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 
 app = Flask(__name__)
+APP_BUILD = "20260531-route-check"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
 PUBLIC_FILES = {
@@ -421,7 +422,24 @@ def can_serve_public_file(filename):
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "service": "ATV Exchange Push Backend"})
+    return jsonify({
+        "ok": True,
+        "service": "ATV Exchange Push Backend",
+        "build": APP_BUILD,
+        "baseDir": BASE_DIR,
+        "file": __file__,
+    })
+
+
+@app.get("/diagnostics/routes")
+def route_diagnostics():
+    return jsonify({
+        "ok": True,
+        "build": APP_BUILD,
+        "baseDir": BASE_DIR,
+        "file": __file__,
+        "routes": sorted(str(rule) for rule in app.url_map.iter_rules()),
+    })
 
 
 @app.get("/diagnostics/payout-verification")
