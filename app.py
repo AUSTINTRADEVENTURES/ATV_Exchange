@@ -54,6 +54,7 @@ PUBLIC_FILES = {
     "support-chat-admin.html",
     "app.js",
     "styles.css",
+    "style.css",
     "manifest.json",
     "sw.js",
     "firebase-messaging-sw.js",
@@ -65,9 +66,6 @@ ALLOWED_ORIGINS = [
     "https://www.atvexchange.pythonanywhere.com",
     "https://atvexchange.net",
     "https://www.atvexchange.net",
-    "https://atvexchange.online",
-    "https://www.atvexchange.online",
-    "https://api.atvexchange.online",
     "https://austintradeventures.github.io",
     "https://austintradeventures.github.io/ATV_Exchange",
     "http://localhost:8000",
@@ -81,7 +79,7 @@ SERVICE_ACCOUNT_PATH = os.environ.get(
 )
 APP_BASE_URL = os.environ.get(
     "ATV_APP_BASE_URL",
-    "https://atvexchange.pythonanywhere.com"
+    "https://www.atvexchange.net"
 ).rstrip("/")
 
 ADMIN_EMAILS = {
@@ -415,6 +413,8 @@ def verified_name_from_response(data):
 
 def can_serve_public_file(filename):
     clean_name = filename.split("?", 1)[0].strip("/")
+    if clean_name == "style.css":
+        clean_name = "styles.css"
     if not clean_name or clean_name.startswith(".") or ".." in clean_name:
         return False
     if clean_name in PUBLIC_FILES:
@@ -599,6 +599,11 @@ def verify_ghs_momo():
 
 @app.get("/")
 def home():
+    return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.get("/index.html")
+def index_page():
     return send_from_directory(BASE_DIR, "index.html")
 
 
@@ -979,5 +984,7 @@ def internal_transfer():
 def public_file(filename):
     clean_name = filename.split("?", 1)[0].strip("/")
     if can_serve_public_file(clean_name):
+        if clean_name == "style.css":
+            clean_name = "styles.css"
         return send_from_directory(BASE_DIR, clean_name)
     abort(404)

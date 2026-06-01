@@ -1,4 +1,4 @@
-importScripts("./sw.js?v=20260530verifyisolate1");
+importScripts("./sw.js?v=20260601netprod1");
 
 
 
