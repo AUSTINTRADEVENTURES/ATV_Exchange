@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260601netprod1";
+const appAssetVersion = "20260601flw1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260601netprod1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260601flw1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260601netprod1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260601flw1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -3727,8 +3727,8 @@ if(!amountValue || amountValue <= 0) return alert("Enter a valid deposit amount"
 let currency = depositCurrency.value;
 if(document.getElementById("depositMethodPrimary")){
 let isGhs = currency === "GHS";
-depositMethodPrimary.querySelector("b").innerText = isGhs ? "MTN Mobile Money" : "OPay Bank Transfer";
-depositMethodPrimaryText.innerText = isGhs ? "Active for GHS deposits" : "Active for NGN deposits";
+depositMethodPrimary.querySelector("b").innerText = isGhs ? "MTN Mobile Money" : "Flutterwave";
+depositMethodPrimaryText.innerText = isGhs ? "Active for GHS deposits" : "Automatic NGN payment verification";
 }
 showDepositStep(3);
 }
@@ -3739,7 +3739,7 @@ if(document.getElementById("depositMethodPrimary")) depositMethodPrimary.classLi
 }
 
 function depositSummary(order){
-let method = order.currency === "GHS" ? "MTN Mobile Money" : "OPay Bank Transfer";
+let method = order.paymentProvider === "flutterwave" ? "Flutterwave Secure Payment" : (order.currency === "GHS" ? "MTN Mobile Money" : "OPay Bank Transfer");
 return `
 <div class="flow-summary-grid">
 <div><span>Order ID</span><b>${order.requestId || order.id}</b></div>
@@ -3753,6 +3753,7 @@ return `
 function depositCustomerStatusLabel(status){
 let value = String(status || "Created").toLowerCase();
 if(value === "created") return "Created";
+if(value === "awaiting flutterwave payment") return "Awaiting Flutterwave Payment";
 if(value === "payment submitted" || value === "pending") return "Payment Submitted";
 if(value === "verification") return "Deposit Verification";
 if(value === "processing") return "Deposit Processing";
@@ -3790,6 +3791,8 @@ businessName: paymentDetails.businessName,
 accountHolderName: paymentDetails.accountHolderName,
 status: "created",
 type: "deposit",
+paymentProvider: currency === "NGN" ? "flutterwave" : "manual",
+paymentVerificationRequired: currency === "NGN",
 createdAt: new Date(now).toLocaleString(),
 created_at: new Date(now).toLocaleString(),
 createdAtMs: now,
@@ -3823,9 +3826,61 @@ orderDetailUrl("deposits", requestId),
 adminOrderNotification("deposits", requestId, {type:"deposit", status:"created"}).data
 );
 showToast("Deposit order created");
+if(currency === "NGN"){
+await startFlutterwaveDepositPayment(requestId, amountValue, currency, profile);
+}
 }catch(error){
 if(document.getElementById("depositStatus")) depositStatus.innerText = "Could not create deposit: "+error.message;
 alert("Could not create deposit: "+error.message);
+}
+}
+
+async function startFlutterwaveDepositPayment(requestId, amountValue, currency, profile){
+try{
+if(document.getElementById("depositStatus")) depositStatus.innerText = "Opening Flutterwave secure payment...";
+setLoading("createDepositOrderBtn", true, "Opening payment...");
+let result = await callPushBackend("/api/flutterwave/create-payment", {
+tx_ref: requestId,
+orderId: requestId,
+requestId,
+amount: amountValue,
+currency,
+email: currentUser.email,
+customerName: profile ? (profile.name || profile.fullName || profile.username || currentUser.email) : currentUser.email
+});
+if(!result || result.ok === false || !result.paymentLink){
+throw new Error((result && (result.message || result.error)) || "Could not create Flutterwave payment link");
+}
+
+async function resumeFlutterwaveDepositPayment(){
+let requestId = localStorage.getItem("activeDepositOrderId");
+if(!requestId) return alert("Create deposit order first");
+try{
+let doc = await db.collection("deposits").doc(requestId).get();
+if(!doc.exists) throw new Error("Deposit order not found");
+let order = doc.data();
+if(order.flutterwavePaymentLink){
+window.location.href = order.flutterwavePaymentLink;
+return;
+}
+await startFlutterwaveDepositPayment(requestId, Number(order.amount || 0), order.currency || "NGN", {name: order.customerName || order.username || order.customerEmail || ""});
+}catch(error){
+alert("Could not reopen Flutterwave payment: "+error.message);
+}
+}
+await db.collection("deposits").doc(requestId).set({
+status: "awaiting flutterwave payment",
+paymentProvider: "flutterwave",
+flutterwavePaymentLink: result.paymentLink,
+updatedAt: new Date().toLocaleString()
+},{merge:true});
+window.location.href = result.paymentLink;
+}catch(error){
+appLog("Flutterwave deposit payment failed", error.message || error);
+if(document.getElementById("depositStatus")) depositStatus.innerText = "Could not open Flutterwave payment. Please try again.";
+alert("Could not open Flutterwave payment. Please try again.");
+}finally{
+setLoading("createDepositOrderBtn", false);
 }
 }
 
@@ -3845,11 +3900,28 @@ if(document.getElementById("depositCurrency")) depositCurrency.value = order.cur
 if(document.getElementById("depositOrderSummary")) depositOrderSummary.innerHTML = depositSummary(order);
 if(document.getElementById("depositLiveStatus")) depositLiveStatus.innerHTML = depositSummary(order);
 if(document.getElementById("depositPaymentInstructions")) updateDepositPaymentInstructions();
+setDepositProofFieldsVisible(order.paymentProvider !== "flutterwave");
 
 let status = String(order.status || "created").toLowerCase();
-if(status === "created"){
+if(status === "created" || status === "awaiting flutterwave payment"){
 showDepositStep(4);
 startDepositCountdown(order);
+if(order.paymentProvider === "flutterwave" && document.getElementById("depositPaymentInstructions")){
+depositPaymentInstructions.innerHTML = `
+<h3>Flutterwave Secure Payment</h3>
+<p>Your deposit will be credited only after Flutterwave confirms successful payment.</p>
+${order.flutterwavePaymentLink ? `<button onclick="window.location.href='${escapeHtml(order.flutterwavePaymentLink)}'">Continue to Flutterwave</button>` : `<button onclick="resumeFlutterwaveDepositPayment()">Open Flutterwave Payment</button>`}
+`;
+}
+
+function setDepositProofFieldsVisible(visible){
+["depositSenderName","depositTransactionId","depositScreenshot","depositBtn"].forEach(id=>{
+let el = document.getElementById(id);
+if(el) el.classList.toggle("hidden", !visible);
+});
+let screenshotLabel = document.querySelector("label.upload-label");
+if(screenshotLabel) screenshotLabel.classList.toggle("hidden", !visible);
+}
 return;
 }
 if(status === "rejected"){
@@ -4587,7 +4659,7 @@ if(currency === "GHS" && !/^[0-9]{9,15}$/.test(accountNumber)) return alert("Ent
 setLoading("withdrawVerifyBtn", true, "Verifying...");
 if(statusEl) statusEl.innerText = "Verifying account name...";
 
-let endpoint = currency === "NGN" ? "/verify-ngn-bank" : "/verify-ghs-momo";
+let endpoint = currency === "NGN" ? "/api/verify-bank-account" : "/verify-ghs-momo";
 let result = await callPushBackend(endpoint, {
 currency,
 bankName: providerName,
@@ -8269,7 +8341,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260601netprod1")
+navigator.serviceWorker.register("./sw.js?v=20260601flw1")
 .then(registration => registration.update())
 .catch(() => {});
 }

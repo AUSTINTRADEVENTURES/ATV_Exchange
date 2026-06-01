@@ -1,4 +1,4 @@
-﻿// Firebase Cloud Functions sender for ATV Exchange push notifications.
+// Firebase Cloud Functions sender for ATV Exchange push notifications.
 // This must be deployed from a Firebase Functions project. The browser app
 // can save FCM tokens, but only this backend can send phone notifications
 // while the app is closed.

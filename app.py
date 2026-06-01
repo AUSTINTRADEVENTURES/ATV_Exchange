@@ -5,6 +5,7 @@ from firebase_admin import auth, credentials, firestore, messaging
 import os
 import time
 import json
+import traceback
 from urllib import request as urlrequest
 from urllib import parse as urlparse
 from urllib.error import HTTPError, URLError
@@ -95,6 +96,13 @@ db = firestore.client()
 
 def json_error(message, status=400):
     return jsonify({"ok": False, "message": message}), status
+
+
+def backend_log(event, data=None):
+    try:
+        print("[ATV]", event, json.dumps(data or {}, default=str), flush=True)
+    except Exception:
+        print("[ATV]", event, data, flush=True)
 
 
 def verify_request_user():
@@ -411,6 +419,165 @@ def verified_name_from_response(data):
     return ""
 
 
+def flutterwave_secret_key():
+    return (
+        os.environ.get("FLW_SECRET_KEY", "").strip()
+        or os.environ.get("FLUTTERWAVE_SECRET_KEY", "").strip()
+    )
+
+
+def flutterwave_public_key():
+    return os.environ.get("FLW_PUBLIC_KEY", "").strip()
+
+
+def flutterwave_secret_hash():
+    return os.environ.get("FLW_SECRET_HASH", "").strip()
+
+
+def flutterwave_headers():
+    secret = flutterwave_secret_key()
+    if not secret:
+        raise ValueError("Flutterwave secret key is not configured")
+    return {"Authorization": "Bearer " + secret}
+
+
+def flutterwave_status(data):
+    if not isinstance(data, dict):
+        return ""
+    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
+    return str(nested.get("status") or data.get("status") or "").strip().lower()
+
+
+def flutterwave_data(data):
+    return data.get("data") if isinstance(data, dict) and isinstance(data.get("data"), dict) else {}
+
+
+def verify_flutterwave_reference(tx_ref):
+    tx_ref = str(tx_ref or "").strip()
+    if not tx_ref:
+        raise ValueError("Missing Flutterwave transaction reference")
+    query = urlparse.urlencode({"tx_ref": tx_ref})
+    result = http_json(
+        "GET",
+        "https://api.flutterwave.com/v3/transactions/verify_by_reference?" + query,
+        headers=flutterwave_headers(),
+    )
+    backend_log("flutterwave.verify.response", {"tx_ref": tx_ref, "response": result})
+    return result
+
+
+def credit_verified_deposit(tx_ref, verification_response):
+    data = flutterwave_data(verification_response)
+    status = str(data.get("status") or "").lower()
+    amount = clean_money(data.get("amount"))
+    currency = str(data.get("currency") or "").upper()
+    flw_id = str(data.get("id") or "")
+
+    if status != "successful":
+        raise ValueError("Flutterwave payment is not successful")
+    if currency not in {"NGN", "GHS"}:
+        raise ValueError("Unsupported payment currency")
+    if amount <= 0:
+        raise ValueError("Invalid payment amount")
+
+    deposit_ref = db.collection("deposits").document(tx_ref)
+    wallet_ref = db.collection("walletRequests").document(tx_ref)
+    payment_ref = db.collection("flutterwavePayments").document(tx_ref)
+    transaction_ref = db.collection("transactions").document("DEP-" + tx_ref)
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def do_credit(tx):
+        deposit_doc = deposit_ref.get(transaction=tx)
+        if not deposit_doc.exists:
+            raise ValueError("Deposit order not found for reference " + tx_ref)
+        deposit = deposit_doc.to_dict() or {}
+
+        existing_payment = payment_ref.get(transaction=tx)
+        if existing_payment.exists and (existing_payment.to_dict() or {}).get("credited") is True:
+            return {"alreadyCredited": True, "depositId": tx_ref}
+
+        expected_amount = clean_money(deposit.get("amount"))
+        expected_currency = str(deposit.get("currency") or "").upper()
+        if expected_currency != currency:
+            raise ValueError("Payment currency mismatch")
+        if round(expected_amount, 2) != round(amount, 2):
+            raise ValueError("Payment amount mismatch")
+
+        if str(deposit.get("status") or "").lower() in {"credited", "approved"}:
+            tx.set(payment_ref, {
+                "tx_ref": tx_ref,
+                "flutterwaveId": flw_id,
+                "status": status,
+                "amount": amount,
+                "currency": currency,
+                "credited": True,
+                "duplicate": True,
+                "verifiedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "raw": data,
+            }, merge=True)
+            return {"alreadyCredited": True, "depositId": tx_ref}
+
+        customer_id = deposit.get("customerId") or deposit.get("user_id")
+        if not customer_id:
+            raise ValueError("Deposit customer ID is missing")
+        balance_ref = db.collection("balances").document(customer_id)
+        balance_doc = balance_ref.get(transaction=tx)
+        balance = balance_doc.to_dict() if balance_doc.exists else {}
+        field = "ngn" if currency == "NGN" else "ghs"
+        current_balance = clean_money((balance or {}).get(field, 0))
+        new_balance = clean_money(current_balance + amount)
+        now_text = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        tx.set(balance_ref, {
+            field: new_balance,
+            "updatedAt": now_text,
+            "lastDepositId": tx_ref,
+        }, merge=True)
+        update_payload = {
+            "status": "credited",
+            "flutterwaveStatus": "successful",
+            "flutterwaveId": flw_id,
+            "paymentProvider": "flutterwave",
+            "paymentVerified": True,
+            "creditedAt": now_text,
+            "updatedAt": now_text,
+        }
+        tx.set(deposit_ref, update_payload, merge=True)
+        tx.set(wallet_ref, {**update_payload, "status": "Credited"}, merge=True)
+        tx.set(payment_ref, {
+            "tx_ref": tx_ref,
+            "flutterwaveId": flw_id,
+            "status": status,
+            "amount": amount,
+            "currency": currency,
+            "customerId": customer_id,
+            "depositId": tx_ref,
+            "credited": True,
+            "verifiedAt": now_text,
+            "raw": data,
+        }, merge=True)
+        tx.set(transaction_ref, {
+            "orderID": "DEP-" + tx_ref,
+            "requestId": tx_ref,
+            "type": "deposit",
+            "customerId": customer_id,
+            "customerEmail": deposit.get("customerEmail", ""),
+            "currency": currency,
+            "amount": amount,
+            "converted": amount,
+            "status": "Completed",
+            "paymentProvider": "flutterwave",
+            "paymentReference": tx_ref,
+            "flutterwaveId": flw_id,
+            "date": now_text,
+            "createdAt": now_text,
+        }, merge=True)
+        return {"alreadyCredited": False, "depositId": tx_ref, "customerId": customer_id, "amount": amount, "currency": currency}
+
+    return do_credit(transaction)
+
+
 def can_serve_public_file(filename):
     clean_name = filename.split("?", 1)[0].strip("/")
     if clean_name == "style.css":
@@ -425,13 +592,7 @@ def can_serve_public_file(filename):
 
 @app.get("/health")
 def health():
-    return jsonify({
-        "ok": True,
-        "service": "ATV Exchange Push Backend",
-        "build": APP_BUILD,
-        "baseDir": BASE_DIR,
-        "file": __file__,
-    })
+    return "Backend is running", 200
 
 
 @app.get("/diagnostics/routes")
@@ -450,10 +611,16 @@ def payout_verification_diagnostics():
     return jsonify({
         "ok": True,
         "service": "ATV Exchange Payout Verification",
+        "flutterwavePayments": {
+            "configured": bool(flutterwave_secret_key()),
+            "hasPublicKey": bool(flutterwave_public_key()),
+            "hasSecretHash": bool(flutterwave_secret_hash()),
+            "webhookUrl": APP_BASE_URL + "/api/flutterwave/webhook",
+        },
         "ngnBankVerification": {
             "configured": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip() or os.environ.get("FLUTTERWAVE_SECRET_KEY", "").strip()),
             "paystack": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip()),
-            "flutterwave": bool(os.environ.get("FLUTTERWAVE_SECRET_KEY", "").strip()),
+            "flutterwave": bool(flutterwave_secret_key()),
         },
         "ghsMomoVerification": {
             "configured": bool(os.environ.get("GHANA_MOMO_VERIFY_URL", "").strip()),
@@ -481,6 +648,7 @@ def page_diagnostics():
 
 
 @app.post("/verify-ngn-bank")
+@app.post("/api/verify-bank-account")
 def verify_ngn_bank():
     try:
         decoded = require_signed_in_request()
@@ -497,21 +665,29 @@ def verify_ngn_bank():
         return json_error("Bank code is required")
 
     paystack_secret = os.environ.get("PAYSTACK_SECRET_KEY", "").strip()
-    flutterwave_secret = os.environ.get("FLUTTERWAVE_SECRET_KEY", "").strip()
+    flutterwave_secret = flutterwave_secret_key()
+    backend_log("bank.verify.request", {
+        "userId": decoded.get("uid", ""),
+        "bankCode": bank_code,
+        "bankName": bank_name,
+        "accountNumberLast4": account_number[-4:],
+        "provider": "flutterwave" if flutterwave_secret else ("paystack" if paystack_secret else "none"),
+    })
     try:
-        if paystack_secret:
-            query = urlparse.urlencode({"account_number": account_number, "bank_code": bank_code})
+        if flutterwave_secret:
             result = http_json(
-                "GET",
-                "https://api.paystack.co/bank/resolve?" + query,
-                headers={"Authorization": "Bearer " + paystack_secret},
+                "POST",
+                "https://api.flutterwave.com/v3/accounts/resolve",
+                headers={"Authorization": "Bearer " + flutterwave_secret},
+                body={"account_number": account_number, "account_bank": bank_code},
             )
+            backend_log("bank.verify.flutterwave.response", {"response": result})
             account_name = verified_name_from_response(result)
             if not account_name:
                 return json_error("Bank account name could not be verified", 400)
             return jsonify({
                 "ok": True,
-                "provider": "paystack",
+                "provider": "flutterwave",
                 "bankName": bank_name,
                 "bankCode": bank_code,
                 "accountNumber": account_number,
@@ -520,19 +696,20 @@ def verify_ngn_bank():
                 "userId": decoded.get("uid", ""),
             })
 
-        if flutterwave_secret:
+        if paystack_secret:
+            query = urlparse.urlencode({"account_number": account_number, "bank_code": bank_code})
             result = http_json(
-                "POST",
-                "https://api.flutterwave.com/v3/accounts/resolve",
-                headers={"Authorization": "Bearer " + flutterwave_secret},
-                body={"account_number": account_number, "account_bank": bank_code},
+                "GET",
+                "https://api.paystack.co/bank/resolve?" + query,
+                headers={"Authorization": "Bearer " + paystack_secret},
             )
+            backend_log("bank.verify.paystack.response", {"response": result})
             account_name = verified_name_from_response(result)
             if not account_name:
                 return json_error("Bank account name could not be verified", 400)
             return jsonify({
                 "ok": True,
-                "provider": "flutterwave",
+                "provider": "paystack",
                 "bankName": bank_name,
                 "bankCode": bank_code,
                 "accountNumber": account_number,
@@ -595,6 +772,122 @@ def verify_ghs_momo():
         return json_error(str(exc), 400)
     except Exception as exc:
         return json_error("MoMo verification failed: " + str(exc), 500)
+
+
+@app.post("/api/flutterwave/create-payment")
+def create_flutterwave_payment():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+
+    data = request.get_json(silent=True) or {}
+    tx_ref = str(data.get("tx_ref") or data.get("orderId") or data.get("requestId") or "").strip()
+    amount = clean_money(data.get("amount"))
+    currency = str(data.get("currency") or "NGN").upper().strip()
+    customer_email = str(data.get("email") or decoded.get("email") or "").strip()
+    customer_name = str(data.get("customerName") or data.get("name") or customer_email or "ATV customer").strip()
+
+    if not tx_ref:
+        return json_error("Missing payment reference")
+    if amount <= 0:
+        return json_error("Enter a valid payment amount")
+    if currency not in {"NGN", "GHS"}:
+        return json_error("Invalid payment currency")
+    if not customer_email:
+        return json_error("Customer email is required")
+
+    redirect_url = APP_BASE_URL + "/deposit.html?tx_ref=" + urlparse.quote(tx_ref)
+    payload = {
+        "tx_ref": tx_ref,
+        "amount": amount,
+        "currency": currency,
+        "redirect_url": redirect_url,
+        "payment_options": "card,banktransfer,ussd",
+        "customer": {
+            "email": customer_email,
+            "name": customer_name,
+        },
+        "customizations": {
+            "title": "ATV Exchange Deposit",
+            "description": currency + " wallet deposit",
+            "logo": APP_BASE_URL + "/icon.png",
+        },
+        "meta": {
+            "customerId": decoded.get("uid", ""),
+            "orderId": tx_ref,
+            "type": "deposit",
+        },
+    }
+
+    try:
+        backend_log("flutterwave.create.request", {"tx_ref": tx_ref, "amount": amount, "currency": currency, "userId": decoded.get("uid", "")})
+        result = http_json(
+            "POST",
+            "https://api.flutterwave.com/v3/payments",
+            headers=flutterwave_headers(),
+            body=payload,
+        )
+        backend_log("flutterwave.create.response", {"tx_ref": tx_ref, "response": result})
+        payment_data = flutterwave_data(result)
+        payment_link = payment_data.get("link") or result.get("link")
+        if not payment_link:
+            return json_error("Flutterwave did not return a payment link", 502)
+        db.collection("deposits").document(tx_ref).set({
+            "flutterwavePaymentLink": payment_link,
+            "flutterwaveCreateResponse": result,
+            "paymentProvider": "flutterwave",
+            "paymentStatus": "pending",
+            "updatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }, merge=True)
+        return jsonify({"ok": True, "tx_ref": tx_ref, "paymentLink": payment_link, "provider": "flutterwave"})
+    except ValueError as exc:
+        backend_log("flutterwave.create.error", {"tx_ref": tx_ref, "error": str(exc)})
+        return json_error(str(exc), 400)
+    except Exception as exc:
+        backend_log("flutterwave.create.exception", {"tx_ref": tx_ref, "error": str(exc), "trace": traceback.format_exc()})
+        return json_error("Flutterwave payment could not be created", 500)
+
+
+@app.get("/api/flutterwave/verify/<tx_ref>")
+def verify_flutterwave_payment(tx_ref):
+    try:
+        result = verify_flutterwave_reference(tx_ref)
+        credit_result = credit_verified_deposit(tx_ref, result)
+        backend_log("flutterwave.verify.success", {"tx_ref": tx_ref, "credit": credit_result})
+        return jsonify({"ok": True, "tx_ref": tx_ref, "verification": result, "credit": credit_result})
+    except ValueError as exc:
+        backend_log("flutterwave.verify.failed", {"tx_ref": tx_ref, "error": str(exc)})
+        return json_error(str(exc), 400)
+    except Exception as exc:
+        backend_log("flutterwave.verify.exception", {"tx_ref": tx_ref, "error": str(exc), "trace": traceback.format_exc()})
+        return json_error("Flutterwave verification failed", 500)
+
+
+@app.post("/api/flutterwave/webhook")
+def flutterwave_webhook():
+    expected_hash = flutterwave_secret_hash()
+    received_hash = request.headers.get("verif-hash", "")
+    if expected_hash and received_hash != expected_hash:
+        backend_log("flutterwave.webhook.invalid_hash", {"received": bool(received_hash)})
+        return json_error("Invalid webhook signature", 401)
+
+    payload = request.get_json(silent=True) or {}
+    backend_log("flutterwave.webhook.received", payload)
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    tx_ref = str(data.get("tx_ref") or data.get("txRef") or "").strip()
+    event = str(payload.get("event") or "").lower()
+    if not tx_ref:
+        return json_error("Missing transaction reference", 400)
+
+    try:
+        verification = verify_flutterwave_reference(tx_ref)
+        credit_result = credit_verified_deposit(tx_ref, verification)
+        backend_log("flutterwave.webhook.credited", {"tx_ref": tx_ref, "event": event, "credit": credit_result})
+        return jsonify({"ok": True, "tx_ref": tx_ref, "credit": credit_result})
+    except Exception as exc:
+        backend_log("flutterwave.webhook.failed", {"tx_ref": tx_ref, "event": event, "error": str(exc), "trace": traceback.format_exc()})
+        return json_error("Webhook verification failed: " + str(exc), 400)
 
 
 @app.get("/")
