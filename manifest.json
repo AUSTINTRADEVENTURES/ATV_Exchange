@@ -2,7 +2,7 @@
   "name": "ATV Exchange",
   "short_name": "ATV",
   "id": "/index.html",
-  "start_url": "./index.html?v=20260601flw2",
+  "start_url": "./index.html?v=20260601bankverify1",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

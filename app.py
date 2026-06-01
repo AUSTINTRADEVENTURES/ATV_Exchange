@@ -647,6 +647,21 @@ def page_diagnostics():
     })
 
 
+@app.get("/api/verify-bank-account")
+def verify_bank_account_status():
+    configured = bool(flutterwave_secret_key())
+    if not configured:
+        backend_log("bank.verify.missing_secret", {"message": "Missing FLW_SECRET_KEY"})
+    return jsonify({
+        "ok": True,
+        "service": "ATV Exchange Bank Account Verification",
+        "method": "POST required for verification",
+        "provider": "flutterwave",
+        "configured": configured,
+        "message": "Ready" if configured else "Missing FLW_SECRET_KEY",
+    })
+
+
 @app.post("/verify-ngn-bank")
 @app.post("/api/verify-bank-account")
 def verify_ngn_bank():
@@ -656,72 +671,60 @@ def verify_ngn_bank():
         return json_error(str(exc), 401)
 
     data = request.get_json(silent=True) or {}
-    account_number = str(data.get("accountNumber") or "").strip().replace(" ", "")
-    bank_code = str(data.get("bankCode") or "").strip()
+    account_number = str(data.get("account_number") or data.get("accountNumber") or "").strip().replace(" ", "")
+    bank_code = str(data.get("bank_code") or data.get("bankCode") or "").strip()
     bank_name = str(data.get("bankName") or "").strip()
     if not account_number.isdigit() or len(account_number) != 10:
         return json_error("Enter a valid 10-digit Nigerian account number")
     if not bank_code:
         return json_error("Bank code is required")
 
-    paystack_secret = os.environ.get("PAYSTACK_SECRET_KEY", "").strip()
     flutterwave_secret = flutterwave_secret_key()
+    if not flutterwave_secret:
+        backend_log("bank.verify.missing_secret", {
+            "message": "Missing FLW_SECRET_KEY",
+            "userId": decoded.get("uid", ""),
+            "bankCode": bank_code,
+            "bankName": bank_name,
+            "accountNumberLast4": account_number[-4:],
+        })
+        return json_error("Missing FLW_SECRET_KEY", 503)
+
     backend_log("bank.verify.request", {
         "userId": decoded.get("uid", ""),
         "bankCode": bank_code,
         "bankName": bank_name,
         "accountNumberLast4": account_number[-4:],
-        "provider": "flutterwave" if flutterwave_secret else ("paystack" if paystack_secret else "none"),
+        "provider": "flutterwave",
     })
     try:
-        if flutterwave_secret:
-            result = http_json(
-                "POST",
-                "https://api.flutterwave.com/v3/accounts/resolve",
-                headers={"Authorization": "Bearer " + flutterwave_secret},
-                body={"account_number": account_number, "account_bank": bank_code},
-            )
-            backend_log("bank.verify.flutterwave.response", {"response": result})
-            account_name = verified_name_from_response(result)
-            if not account_name:
-                return json_error("Bank account name could not be verified", 400)
-            return jsonify({
-                "ok": True,
-                "provider": "flutterwave",
-                "bankName": bank_name,
-                "bankCode": bank_code,
-                "accountNumber": account_number,
-                "accountName": account_name,
-                "verifiedAccountName": account_name,
-                "userId": decoded.get("uid", ""),
-            })
-
-        if paystack_secret:
-            query = urlparse.urlencode({"account_number": account_number, "bank_code": bank_code})
-            result = http_json(
-                "GET",
-                "https://api.paystack.co/bank/resolve?" + query,
-                headers={"Authorization": "Bearer " + paystack_secret},
-            )
-            backend_log("bank.verify.paystack.response", {"response": result})
-            account_name = verified_name_from_response(result)
-            if not account_name:
-                return json_error("Bank account name could not be verified", 400)
-            return jsonify({
-                "ok": True,
-                "provider": "paystack",
-                "bankName": bank_name,
-                "bankCode": bank_code,
-                "accountNumber": account_number,
-                "accountName": account_name,
-                "verifiedAccountName": account_name,
-                "userId": decoded.get("uid", ""),
-            })
-
-        return json_error("Bank account verification is not configured on backend", 503)
+        result = http_json(
+            "POST",
+            "https://api.flutterwave.com/v3/accounts/resolve",
+            headers={"Authorization": "Bearer " + flutterwave_secret},
+            body={"account_number": account_number, "account_bank": bank_code},
+        )
+        backend_log("bank.verify.flutterwave.response", {"response": result})
+        account_name = verified_name_from_response(result)
+        if not account_name:
+            return json_error("Bank account name could not be verified", 400)
+        return jsonify({
+            "ok": True,
+            "provider": "flutterwave",
+            "bankName": bank_name,
+            "bankCode": bank_code,
+            "bank_code": bank_code,
+            "accountNumber": account_number,
+            "account_number": account_number,
+            "accountName": account_name,
+            "verifiedAccountName": account_name,
+            "userId": decoded.get("uid", ""),
+        })
     except ValueError as exc:
+        backend_log("bank.verify.flutterwave.error", {"error": str(exc)})
         return json_error(str(exc), 400)
     except Exception as exc:
+        backend_log("bank.verify.flutterwave.exception", {"error": str(exc), "trace": traceback.format_exc()})
         return json_error("Bank verification failed: " + str(exc), 500)
 
 

@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260601flw2";
+const appAssetVersion = "20260601bankverify1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260601flw2");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260601bankverify1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260601flw2");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260601bankverify1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4664,11 +4664,27 @@ let result = await callPushBackend(endpoint, {
 currency,
 bankName: providerName,
 bankCode: providerCode,
+bank_code: providerCode,
 network: providerName,
 accountNumber,
+account_number: accountNumber,
 momoNumber: accountNumber
 });
-if(!result || result.ok === false) throw new Error((result && (result.message || result.error)) || "Verification failed");
+if(!result || result.ok === false){
+console.error("[ATV] Bank/MoMo verification backend error", {
+endpoint: backendUrl(endpoint),
+payload: {
+currency,
+bankName: providerName,
+bankCode: providerCode,
+bank_code: providerCode,
+accountNumber,
+account_number: accountNumber
+},
+result
+});
+throw new Error((result && (result.message || result.error)) || "Verification failed");
+}
 let accountName = result.accountName || result.verifiedAccountName || result.momoName || "";
 if(!accountName) throw new Error("Verification failed. Account name was not returned.");
 let payoutDetails = {
@@ -4694,10 +4710,10 @@ resetWithdrawalVerification();
 appLog("Payout verification failed", error.message || error);
 let publicMessage = "Could not verify account name, please check details or try again";
 let rawMessage = String(error.message || "");
-if(rawMessage.toLowerCase().includes("not configured")){
-publicMessage = currency === "NGN"
-? "Bank verification is not ready yet. Please try again later or contact support."
-: "MoMo name verification is not ready yet. Please try again later or contact support.";
+if(rawMessage.toLowerCase().includes("missing flw_secret_key")){
+publicMessage = "Bank verification setup is missing FLW_SECRET_KEY. Please contact support.";
+}else if(rawMessage.toLowerCase().includes("not configured")){
+publicMessage = "Could not verify account name, please check details or try again";
 }
 let statusEl = document.getElementById("withdrawVerificationStatus");
 if(statusEl) statusEl.innerText = publicMessage;
@@ -8341,7 +8357,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260601flw2")
+navigator.serviceWorker.register("./sw.js?v=20260601bankverify1")
 .then(registration => registration.update())
 .catch(() => {});
 }
