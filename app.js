@@ -1,4 +1,4 @@
-// FIREBASE CONFIG
+﻿// FIREBASE CONFIG
 const firebaseConfig = {
 apiKey: "AIzaSyBQiE6s-oBHwmFcBe_7ghcYb6hEZytTFXw",
 authDomain: "atvexchange.firebaseapp.com",
@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260601flw1";
+const appAssetVersion = "20260601flw2";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260601flw1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260601flw2");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260601flw1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260601flw2");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -7804,7 +7804,7 @@ let html = "";
 data.forEach(thread=>{
 html += `
 <button class="admin-list-row" onclick="openSupportThread('${thread.id}')">
-<span class="admin-list-rank">💬</span>
+<span class="admin-list-rank">ðŸ’¬</span>
 <span>
 <b>${thread.customerEmail || thread.customerId || "Customer"}</b>
 <small>${thread.id} - ${thread.updatedAt || ""}</small>
@@ -8341,7 +8341,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260601flw1")
+navigator.serviceWorker.register("./sw.js?v=20260601flw2")
 .then(registration => registration.update())
 .catch(() => {});
 }

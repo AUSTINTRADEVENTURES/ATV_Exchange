@@ -864,6 +864,17 @@ def verify_flutterwave_payment(tx_ref):
         return json_error("Flutterwave verification failed", 500)
 
 
+@app.get("/api/flutterwave/webhook")
+def flutterwave_webhook_status():
+    return jsonify({
+        "ok": True,
+        "service": "ATV Exchange Flutterwave Webhook",
+        "method": "POST required for live webhook events",
+        "configured": bool(flutterwave_secret_key()),
+        "hasSecretHash": bool(flutterwave_secret_hash()),
+    })
+
+
 @app.post("/api/flutterwave/webhook")
 def flutterwave_webhook():
     expected_hash = flutterwave_secret_hash()

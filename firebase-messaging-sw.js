@@ -1,4 +1,4 @@
-importScripts("./sw.js?v=20260601netprod1");
+﻿importScripts("./sw.js?v=20260601flw2");
 
 
 
