@@ -618,7 +618,7 @@ def payout_verification_diagnostics():
             "webhookUrl": APP_BASE_URL + "/api/flutterwave/webhook",
         },
         "ngnBankVerification": {
-            "configured": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip() or os.environ.get("FLUTTERWAVE_SECRET_KEY", "").strip()),
+            "configured": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip() or flutterwave_secret_key()),
             "paystack": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip()),
             "flutterwave": bool(flutterwave_secret_key()),
         },
@@ -678,6 +678,14 @@ def verify_ngn_bank():
         return json_error("Enter a valid 10-digit Nigerian account number")
     if not bank_code:
         return json_error("Bank code is required")
+    if not bank_code.isdigit():
+        backend_log("bank.verify.invalid_bank_code", {
+            "userId": decoded.get("uid", ""),
+            "bankCode": bank_code,
+            "bankName": bank_name,
+            "accountNumberLast4": account_number[-4:],
+        })
+        return json_error("Bank code must be numeric", 400)
 
     flutterwave_secret = flutterwave_secret_key()
     if not flutterwave_secret:
@@ -696,6 +704,7 @@ def verify_ngn_bank():
         "bankName": bank_name,
         "accountNumberLast4": account_number[-4:],
         "provider": "flutterwave",
+        "requestBody": {"account_number": account_number, "account_bank": bank_code},
     })
     try:
         result = http_json(

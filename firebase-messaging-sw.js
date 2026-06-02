@@ -1,4 +1,4 @@
-﻿importScripts("./sw.js?v=20260601bankverify1");
+﻿importScripts("./sw.js?v=20260602bankcodes1");
 
 
 

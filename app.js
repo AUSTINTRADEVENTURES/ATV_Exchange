@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260601bankverify1";
+const appAssetVersion = "20260602bankcodes1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -1043,7 +1043,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260601bankverify1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260602bankcodes1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1129,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260601bankverify1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260602bankcodes1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4602,6 +4602,7 @@ let banks = [
 ["Kuda Microfinance Bank","50211"],
 ["Moniepoint Microfinance Bank","50515"],
 ["OPay Microfinance Bank","999992"],
+["PalmPay","999991"],
 ["Polaris Bank","076"],
 ["Stanbic IBTC Bank","221"],
 ["Sterling Bank","232"],
@@ -4660,6 +4661,13 @@ setLoading("withdrawVerifyBtn", true, "Verifying...");
 if(statusEl) statusEl.innerText = "Verifying account name...";
 
 let endpoint = currency === "NGN" ? "/api/verify-bank-account" : "/verify-ghs-momo";
+console.log("[ATV] Verifying payout account", {
+endpoint: backendUrl(endpoint),
+currency,
+bankName: providerName,
+bankCode: providerCode,
+accountNumber
+});
 let result = await callPushBackend(endpoint, {
 currency,
 bankName: providerName,
@@ -8357,7 +8365,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260601bankverify1")
+navigator.serviceWorker.register("./sw.js?v=20260602bankcodes1")
 .then(registration => registration.update())
 .catch(() => {});
 }
