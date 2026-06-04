@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260602bankcodes1";
+const appAssetVersion = "20260602authroute1";
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -260,6 +260,16 @@ appLog("Login shown after splash");
 }, delayMs || 900);
 }
 
+function isPublicEntryPage(page){
+return ["index.html", "login.html", "signup.html"].includes(page);
+}
+
+function revealPublicPage(){
+document.body.classList.remove("auth-checking");
+let loader = document.getElementById("publicAuthLoader");
+if(loader) loader.classList.add("hidden");
+}
+
 async function ensureDefaultUserProfile(){
 if(!currentUser) return null;
 
@@ -298,7 +308,14 @@ let page = getPageName();
 showPageLoader("Loading "+(page.replace(".html","") || "page")+"...", {mode:"full"});
 appLog("Auth state changed", {signedIn: !!user, page});
 
-if(!user && page !== "login.html" && page !== "signup.html"){
+if(!user && isPublicEntryPage(page)){
+revealPublicPage();
+if(page === "login.html") showLoginAfterSplash(900);
+else hidePageLoader();
+return;
+}
+
+if(!user && !isPublicEntryPage(page)){
 appLog("No user on protected page; redirecting to login");
 window.location.replace("login.html");
 return;
@@ -320,14 +337,9 @@ appLog("Account status check skipped", error.message);
 }
 }
 
-if(user && (page === "login.html" || page === "signup.html")){
+if(user && isPublicEntryPage(page)){
 appLog("User signed in on auth page; opening dashboard");
 window.location.replace("exchange.html");
-return;
-}
-
-if(!user && page === "login.html"){
-showLoginAfterSplash(900);
 return;
 }
 
@@ -1043,7 +1055,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260602bankcodes1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260602authroute1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1129,7 +1141,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260602bankcodes1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260602authroute1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -8365,7 +8377,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260602bankcodes1")
+navigator.serviceWorker.register("./sw.js?v=20260602authroute1")
 .then(registration => registration.update())
 .catch(() => {});
 }
