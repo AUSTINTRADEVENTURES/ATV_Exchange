@@ -144,7 +144,9 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260602authroute1";
+const appAssetVersion = "20260606prod1";
+let authChecked = false;
+window.atvAuthResolved = false;
 
 function appLog(message, data){
 console.log("[ATV]", message, data || "");
@@ -301,6 +303,8 @@ return defaultProfile;
 }
 
 auth.onAuthStateChanged(async user=>{
+authChecked = true;
+window.atvAuthResolved = true;
 currentUser = user;
 isAdmin = user ? adminEmails.map(email => email.toLowerCase()).includes((user.email || "").toLowerCase()) : false;
 
@@ -1055,7 +1059,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260602authroute1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260606prod1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1141,7 +1145,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260602authroute1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260606prod1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -2123,7 +2127,7 @@ setLoading("registerBtn", false);
 
 function logout(){
 auth.signOut().then(()=>{
-window.location.href = "login.html";
+window.location.replace("index.html");
 });
 }
 
@@ -4680,27 +4684,19 @@ bankName: providerName,
 bankCode: providerCode,
 accountNumber
 });
-let result = await callPushBackend(endpoint, {
-currency,
-bankName: providerName,
-bankCode: providerCode,
-bank_code: providerCode,
-network: providerName,
-accountNumber,
+let verifyPayload = currency === "NGN" ? {
 account_number: accountNumber,
+account_bank: providerCode
+} : {
+currency,
+network: providerName,
 momoNumber: accountNumber
-});
+};
+let result = await callPushBackend(endpoint, verifyPayload);
 if(!result || result.ok === false){
 console.error("[ATV] Bank/MoMo verification backend error", {
 endpoint: backendUrl(endpoint),
-payload: {
-currency,
-bankName: providerName,
-bankCode: providerCode,
-bank_code: providerCode,
-accountNumber,
-account_number: accountNumber
-},
+payload: verifyPayload,
 result
 });
 throw new Error((result && (result.message || result.error)) || "Verification failed");
@@ -8377,7 +8373,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260602authroute1")
+navigator.serviceWorker.register("./sw.js?v=20260606prod1")
 .then(registration => registration.update())
 .catch(() => {});
 }

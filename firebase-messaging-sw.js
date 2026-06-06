@@ -1,4 +1,4 @@
-﻿importScripts("./sw.js?v=20260602authroute1");
+﻿importScripts("./sw.js?v=20260606prod1");
 
 
 
