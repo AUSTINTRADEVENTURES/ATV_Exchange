@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 
 app = Flask(__name__)
-APP_BUILD = "20260531-route-check"
+APP_BUILD = "20260607paystackbank1"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
 PUBLIC_FILES = {
@@ -85,6 +85,29 @@ APP_BASE_URL = os.environ.get(
 
 ADMIN_EMAILS = {
     "ezeaugustinemmaduabuchi@gmail.com",
+}
+
+NIGERIAN_BANK_CODES = {
+    "044": "Access Bank",
+    "023": "Citibank Nigeria",
+    "050": "Ecobank Nigeria",
+    "070": "Fidelity Bank",
+    "011": "First Bank of Nigeria",
+    "214": "First City Monument Bank",
+    "058": "Guaranty Trust Bank",
+    "082": "Keystone Bank",
+    "50211": "Kuda Microfinance Bank",
+    "50515": "Moniepoint Microfinance Bank",
+    "999992": "OPay Microfinance Bank",
+    "999991": "PalmPay",
+    "076": "Polaris Bank",
+    "221": "Stanbic IBTC Bank",
+    "232": "Sterling Bank",
+    "032": "Union Bank of Nigeria",
+    "033": "United Bank for Africa",
+    "215": "Unity Bank",
+    "035": "Wema Bank",
+    "057": "Zenith Bank",
 }
 
 if not firebase_admin._apps:
@@ -618,9 +641,9 @@ def payout_verification_diagnostics():
             "webhookUrl": APP_BASE_URL + "/api/flutterwave/webhook",
         },
         "ngnBankVerification": {
-            "configured": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip() or flutterwave_secret_key()),
+            "configured": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip()),
             "paystack": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip()),
-            "flutterwave": bool(flutterwave_secret_key()),
+            "flutterwave": False,
         },
         "ghsMomoVerification": {
             "configured": bool(os.environ.get("GHANA_MOMO_VERIFY_URL", "").strip()),
@@ -649,20 +672,19 @@ def page_diagnostics():
 
 @app.get("/api/verify-bank-account")
 def verify_bank_account_status():
-    configured = bool(flutterwave_secret_key())
+    configured = bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip())
     if not configured:
-        backend_log("bank.verify.missing_secret", {"message": "Missing FLW_SECRET_KEY"})
+        backend_log("bank.verify.missing_secret", {"message": "Missing PAYSTACK_SECRET_KEY"})
     return jsonify({
         "ok": True,
         "service": "ATV Exchange Bank Account Verification",
         "method": "POST required for verification",
-        "provider": "flutterwave",
+        "provider": "paystack",
         "configured": configured,
-        "message": "Ready" if configured else "Missing FLW_SECRET_KEY",
+        "message": "Ready" if configured else "Missing PAYSTACK_SECRET_KEY",
     })
 
 
-@app.post("/verify-ngn-bank")
 @app.post("/api/verify-bank-account")
 def verify_ngn_bank():
     try:
@@ -672,8 +694,8 @@ def verify_ngn_bank():
 
     data = request.get_json(silent=True) or {}
     account_number = str(data.get("account_number") or data.get("accountNumber") or "").strip().replace(" ", "")
-    bank_code = str(data.get("bank_code") or data.get("bankCode") or "").strip()
-    bank_name = str(data.get("bankName") or "").strip()
+    bank_code = str(data.get("bank_code") or data.get("bankCode") or data.get("account_bank") or "").strip()
+    bank_name = str(data.get("bankName") or data.get("bank_name") or NIGERIAN_BANK_CODES.get(bank_code, "")).strip()
     if not account_number.isdigit() or len(account_number) != 10:
         return json_error("Enter a valid 10-digit Nigerian account number")
     if not bank_code:
@@ -687,39 +709,39 @@ def verify_ngn_bank():
         })
         return json_error("Bank code must be numeric", 400)
 
-    flutterwave_secret = flutterwave_secret_key()
-    if not flutterwave_secret:
+    paystack_secret = os.environ.get("PAYSTACK_SECRET_KEY", "").strip()
+    if not paystack_secret:
         backend_log("bank.verify.missing_secret", {
-            "message": "Missing FLW_SECRET_KEY",
+            "message": "Missing PAYSTACK_SECRET_KEY",
             "userId": decoded.get("uid", ""),
             "bankCode": bank_code,
             "bankName": bank_name,
             "accountNumberLast4": account_number[-4:],
         })
-        return json_error("Missing FLW_SECRET_KEY", 503)
+        return json_error("Missing PAYSTACK_SECRET_KEY", 503)
 
+    query = urlparse.urlencode({"account_number": account_number, "bank_code": bank_code})
     backend_log("bank.verify.request", {
         "userId": decoded.get("uid", ""),
         "bankCode": bank_code,
         "bankName": bank_name,
-        "accountNumberLast4": account_number[-4:],
-        "provider": "flutterwave",
-        "requestBody": {"account_number": account_number, "account_bank": bank_code},
+        "accountNumber": account_number,
+        "provider": "paystack",
+        "requestQuery": {"account_number": account_number, "bank_code": bank_code},
     })
     try:
         result = http_json(
-            "POST",
-            "https://api.flutterwave.com/v3/accounts/resolve",
-            headers={"Authorization": "Bearer " + flutterwave_secret},
-            body={"account_number": account_number, "account_bank": bank_code},
+            "GET",
+            "https://api.paystack.co/bank/resolve?" + query,
+            headers={"Authorization": "Bearer " + paystack_secret},
         )
-        backend_log("bank.verify.flutterwave.response", {"response": result})
+        backend_log("bank.verify.paystack.response", {"response": result})
         account_name = verified_name_from_response(result)
         if not account_name:
             return json_error("Bank account name could not be verified", 400)
         return jsonify({
             "ok": True,
-            "provider": "flutterwave",
+            "provider": "paystack",
             "bankName": bank_name,
             "bankCode": bank_code,
             "bank_code": bank_code,
@@ -730,10 +752,10 @@ def verify_ngn_bank():
             "userId": decoded.get("uid", ""),
         })
     except ValueError as exc:
-        backend_log("bank.verify.flutterwave.error", {"error": str(exc)})
+        backend_log("bank.verify.paystack.error", {"error": str(exc)})
         return json_error(str(exc), 400)
     except Exception as exc:
-        backend_log("bank.verify.flutterwave.exception", {"error": str(exc), "trace": traceback.format_exc()})
+        backend_log("bank.verify.paystack.exception", {"error": str(exc), "trace": traceback.format_exc()})
         return json_error("Bank verification failed: " + str(exc), 500)
 
 

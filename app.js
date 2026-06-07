@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260606prod1";
+const appAssetVersion = "20260607paystackbank1";
 let authChecked = false;
 window.atvAuthResolved = false;
 
@@ -1059,7 +1059,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260606prod1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260607paystackbank1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1145,7 +1145,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260606prod1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260607paystackbank1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4686,7 +4686,7 @@ accountNumber
 });
 let verifyPayload = currency === "NGN" ? {
 account_number: accountNumber,
-account_bank: providerCode
+bank_code: providerCode
 } : {
 currency,
 network: providerName,
@@ -4713,7 +4713,7 @@ accountNumber,
 momoNumber: currency === "GHS" ? accountNumber : "",
 verifiedAccountName: accountName,
 verifiedAt: new Date().toLocaleString(),
-verificationProvider: result.provider || (currency === "NGN" ? "Paystack/Flutterwave" : "MoMo Name Enquiry")
+verificationProvider: result.provider || (currency === "NGN" ? "Paystack" : "MoMo Name Enquiry")
 };
 window.withdrawState.payoutDetails = payoutDetails;
 window.withdrawState.payoutVerified = false;
@@ -8373,7 +8373,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260606prod1")
+navigator.serviceWorker.register("./sw.js?v=20260607paystackbank1")
 .then(registration => registration.update())
 .catch(() => {});
 }

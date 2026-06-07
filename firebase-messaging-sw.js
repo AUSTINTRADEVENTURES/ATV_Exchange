@@ -1,4 +1,4 @@
-﻿importScripts("./sw.js?v=20260606prod1");
+﻿importScripts("./sw.js?v=20260607paystackbank1");
 
 
 

@@ -206,6 +206,10 @@ service cloud.firestore {
           || !request.resource.data.diff(resource.data).affectedKeys().hasAny(["transferUid", "atvUid", "transferUidLocked"])
         )
         && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(["withdrawalPinHash"])
+          || !request.resource.data.keys().hasAny(["withdrawalPinHash"])
+        )
+        && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(["kycStatus"])
           || (
             request.resource.data.kycStatus in ["Not submitted", "Submitted"]
@@ -226,6 +230,10 @@ service cloud.firestore {
       match /fcmTokens/{tokenId} {
         allow create, update, delete: if isOwner(userId);
         allow read: if isOwner(userId) || isAdmin();
+      }
+
+      match /security/{securityDoc} {
+        allow read, create, update, delete: if isOwner(userId);
       }
     }
 
