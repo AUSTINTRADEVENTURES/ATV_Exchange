@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 
 app = Flask(__name__)
-APP_BUILD = "20260607paystackbank1"
+APP_BUILD = "20260607paystackdebug2"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
 PUBLIC_FILES = {
@@ -678,6 +678,7 @@ def verify_bank_account_status():
     return jsonify({
         "ok": True,
         "service": "ATV Exchange Bank Account Verification",
+        "build": APP_BUILD,
         "method": "POST required for verification",
         "provider": "paystack",
         "configured": configured,
@@ -721,6 +722,7 @@ def verify_ngn_bank():
         return json_error("Missing PAYSTACK_SECRET_KEY", 503)
 
     query = urlparse.urlencode({"account_number": account_number, "bank_code": bank_code})
+    paystack_url = "https://api.paystack.co/bank/resolve?" + query
     backend_log("bank.verify.request", {
         "userId": decoded.get("uid", ""),
         "bankCode": bank_code,
@@ -730,15 +732,32 @@ def verify_ngn_bank():
         "requestQuery": {"account_number": account_number, "bank_code": bank_code},
     })
     try:
-        result = http_json(
-            "GET",
-            "https://api.paystack.co/bank/resolve?" + query,
-            headers={"Authorization": "Bearer " + paystack_secret},
-        )
-        backend_log("bank.verify.paystack.response", {"response": result})
+        req = urlrequest.Request(paystack_url, method="GET")
+        req.add_header("Accept", "application/json")
+        req.add_header("Authorization", "Bearer " + paystack_secret)
+        with urlrequest.urlopen(req, timeout=18) as response:
+            raw = response.read().decode("utf-8")
+            result = json.loads(raw or "{}")
+            backend_log("bank.verify.paystack.response", {
+                "status": response.status,
+                "body": result,
+                "raw": raw,
+            })
         account_name = verified_name_from_response(result)
         if not account_name:
-            return json_error("Bank account name could not be verified", 400)
+            message = result.get("message") or result.get("error") or "Bank account name could not be verified"
+            backend_log("bank.verify.paystack.no_name", {"message": message, "response": result})
+            return jsonify({
+                "ok": False,
+                "message": message,
+                "provider": "paystack",
+                "providerStatus": response.status,
+                "providerBody": result,
+                "providerRaw": raw,
+                "bankCode": bank_code,
+                "bankName": bank_name,
+                "accountNumberLast4": account_number[-4:],
+            }), 400
         return jsonify({
             "ok": True,
             "provider": "paystack",
@@ -751,6 +770,32 @@ def verify_ngn_bank():
             "verifiedAccountName": account_name,
             "userId": decoded.get("uid", ""),
         })
+    except HTTPError as exc:
+        raw = ""
+        result = {}
+        try:
+            raw = exc.read().decode("utf-8")
+            result = json.loads(raw or "{}")
+        except Exception:
+            result = {}
+        message = result.get("message") or result.get("error") or raw or "Paystack rejected the bank account verification request"
+        backend_log("bank.verify.paystack.http_error", {
+            "status": exc.code,
+            "message": message,
+            "body": result,
+            "raw": raw,
+        })
+        return jsonify({
+            "ok": False,
+            "message": message,
+            "provider": "paystack",
+            "providerStatus": exc.code,
+            "providerBody": result,
+            "providerRaw": raw,
+            "bankCode": bank_code,
+            "bankName": bank_name,
+            "accountNumberLast4": account_number[-4:],
+        }), 400
     except ValueError as exc:
         backend_log("bank.verify.paystack.error", {"error": str(exc)})
         return json_error(str(exc), 400)

@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260607paystackdebug1";
+const appAssetVersion = "20260607paystackdebug2";
 let authChecked = false;
 window.atvAuthResolved = false;
 
@@ -1654,7 +1654,10 @@ data = {};
 
 if(!response.ok){
 let statusText = response.status ? "HTTP "+response.status : "";
-throw new Error(data.message || ("Backend request failed "+statusText).trim());
+data.ok = false;
+data.error = data.message || ("Backend request failed "+statusText).trim();
+data.httpStatus = response.status;
+return data;
 }
 return data;
 }catch(error){

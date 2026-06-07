@@ -1,4 +1,4 @@
-﻿importScripts("https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js");
 
 firebase.initializeApp({
@@ -11,7 +11,7 @@ appId: "1:329015821953:web:a4143f30b537e970432f80"
 });
 
 const messaging = firebase.messaging();
-const CACHE_VERSION = "atv-exchange-no-cache-v20260607paystackdebug1";
+const CACHE_VERSION = "atv-exchange-no-cache-v20260607paystackdebug2";
 
 messaging.onBackgroundMessage((payload) => {
     const data = payload.data || {};
@@ -82,7 +82,7 @@ self.addEventListener("fetch", (e) => {
 
     if (e.request.mode === "navigate" || acceptsHtml.includes("text/html")) {
         if (url.pathname.endsWith("/") || url.pathname.endsWith("/index.html")) {
-            e.respondWith(fetch("./index.html?v=20260607paystackdebug1", { cache: "no-store" }));
+            e.respondWith(fetch("./index.html?v=20260607paystackdebug2", { cache: "no-store" }));
             return;
         }
 
@@ -91,7 +91,7 @@ self.addEventListener("fetch", (e) => {
     }
 
     if (url.pathname.endsWith("/icon.png") && e.request.destination === "document") {
-        e.respondWith(fetch("./index.html?v=20260607paystackdebug1", { cache: "no-store" }));
+        e.respondWith(fetch("./index.html?v=20260607paystackdebug2", { cache: "no-store" }));
         return;
     }
 
