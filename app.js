@@ -144,7 +144,7 @@ let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260607paystackbank1";
+const appAssetVersion = "20260607paystackdebug1";
 let authChecked = false;
 window.atvAuthResolved = false;
 
@@ -1059,7 +1059,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260607paystackbank1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260607paystackdebug1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1145,7 +1145,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260607paystackbank1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260607paystackdebug1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -4726,10 +4726,12 @@ resetWithdrawalVerification();
 appLog("Payout verification failed", error.message || error);
 let publicMessage = "Could not verify account name, please check details or try again";
 let rawMessage = String(error.message || "");
-if(rawMessage.toLowerCase().includes("missing flw_secret_key")){
-publicMessage = "Bank verification setup is missing FLW_SECRET_KEY. Please contact support.";
+if(rawMessage.toLowerCase().includes("missing paystack_secret_key")){
+publicMessage = "Bank verification setup is missing PAYSTACK_SECRET_KEY. Please contact support.";
 }else if(rawMessage.toLowerCase().includes("not configured")){
 publicMessage = "Could not verify account name, please check details or try again";
+}else if(rawMessage){
+publicMessage = "Could not verify account name: "+rawMessage;
 }
 let statusEl = document.getElementById("withdrawVerificationStatus");
 if(statusEl) statusEl.innerText = publicMessage;
@@ -8373,7 +8375,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260607paystackbank1")
+navigator.serviceWorker.register("./sw.js?v=20260607paystackdebug1")
 .then(registration => registration.update())
 .catch(() => {});
 }
