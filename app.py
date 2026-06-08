@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 
 app = Flask(__name__)
-APP_BUILD = "20260608paystackonly1"
+APP_BUILD = "20260608ghspaystack1"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
 PUBLIC_FILES = {
@@ -470,6 +470,17 @@ def paystack_secret_key():
     return os.environ.get("PAYSTACK_SECRET_KEY", "").strip()
 
 
+def paystack_ghana_secret_key():
+    return os.environ.get("PAYSTACK_GH_SECRET_KEY", "").strip() or os.environ.get("PAYSTACK_GHS_SECRET_KEY", "").strip()
+
+
+def paystack_deposit_secret_key(currency):
+    currency = str(currency or "NGN").upper().strip()
+    if currency == "GHS":
+        return paystack_ghana_secret_key()
+    return paystack_secret_key()
+
+
 def paystack_public_key():
     return os.environ.get("PAYSTACK_PUBLIC_KEY", "").strip()
 
@@ -484,6 +495,24 @@ def paystack_headers():
     }
 
 
+def paystack_deposit_headers(currency):
+    currency = str(currency or "NGN").upper().strip()
+    secret = paystack_deposit_secret_key(currency)
+    if currency == "GHS" and not secret:
+        raise ValueError("GHS Paystack/Mobile Money is not enabled yet.")
+    if not secret:
+        raise ValueError("PAYSTACK_SECRET_KEY is not configured")
+    return {
+        "Authorization": "Bearer " + secret,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 ATVExchange/1.0",
+    }
+
+
+def paystack_webhook_secrets():
+    secrets = [paystack_secret_key(), paystack_ghana_secret_key()]
+    return [secret for index, secret in enumerate(secrets) if secret and secret not in secrets[:index]]
+
+
 def paystack_data(data):
     return data.get("data") if isinstance(data, dict) and isinstance(data.get("data"), dict) else {}
 
@@ -493,23 +522,38 @@ def paystack_status(data):
     return str(nested.get("status") or data.get("status") or "").strip().lower()
 
 
-def verify_paystack_reference(reference):
+def paystack_reference_currency(reference):
+    reference = str(reference or "").strip()
+    if not reference:
+        return "NGN"
+    try:
+        doc = db.collection("deposits").document(reference).get()
+        if doc.exists:
+            return str((doc.to_dict() or {}).get("currency") or "NGN").upper().strip()
+    except Exception as exc:
+        backend_log("paystack.reference.currency_failed", {"reference": reference, "error": str(exc)})
+    return "NGN"
+
+
+def verify_paystack_reference(reference, currency=None):
     reference = str(reference or "").strip()
     if not reference:
         raise ValueError("Missing Paystack payment reference")
+    currency = str(currency or paystack_reference_currency(reference) or "NGN").upper().strip()
     result = http_json(
         "GET",
         "https://api.paystack.co/transaction/verify/" + urlparse.quote(reference),
-        headers=paystack_headers(),
+        headers=paystack_deposit_headers(currency),
     )
-    backend_log("paystack.verify.response", {"reference": reference, "response": result})
+    backend_log("paystack.verify.response", {"reference": reference, "currency": currency, "response": result})
     return result
 
 
 def calculate_paystack_deposit_fee(amount, currency):
     amount = clean_money(amount)
     currency = str(currency or "NGN").upper().strip()
-    percent = clean_money(os.environ.get("PAYSTACK_DEPOSIT_FEE_PERCENT", "1.5"))
+    default_percent = "1.95" if currency == "GHS" else "1.5"
+    percent = clean_money(os.environ.get("PAYSTACK_DEPOSIT_FEE_PERCENT_" + currency, os.environ.get("PAYSTACK_DEPOSIT_FEE_PERCENT", default_percent)))
     flat = clean_money(os.environ.get("PAYSTACK_DEPOSIT_FEE_FLAT_" + currency, "100" if currency == "NGN" and amount >= 2500 else "0"))
     cap = clean_money(os.environ.get("PAYSTACK_DEPOSIT_FEE_CAP_" + currency, "2000" if currency == "NGN" else "0"))
     fee = round((amount * percent / 100) + flat, 2)
@@ -1078,10 +1122,12 @@ def initialize_paystack_deposit():
     customer_name = str(data.get("customerName") or data.get("name") or customer_email or "ATV customer").strip()
     user_id = str(decoded.get("uid") or "").strip()
 
-    if not paystack_secret_key():
-        return json_error("Missing PAYSTACK_SECRET_KEY", 503)
     if currency not in {"NGN", "GHS"}:
         return json_error("Paystack automatic deposit is for NGN and GHS only")
+    if not paystack_deposit_secret_key(currency):
+        if currency == "GHS":
+            return json_error("GHS Paystack/Mobile Money is not enabled yet.", 503)
+        return json_error("Missing PAYSTACK_SECRET_KEY", 503)
     if amount <= 0:
         return json_error("Enter a valid deposit amount")
     if not customer_email:
@@ -1123,18 +1169,20 @@ def initialize_paystack_deposit():
         "updatedAt": now_text,
     }
 
+    paystack_channels = ["mobile_money", "card"] if currency == "GHS" else ["card", "bank", "ussd", "bank_transfer"]
     payload = {
         "email": customer_email,
         "amount": amount_kobo,
         "currency": currency,
         "reference": reference,
         "callback_url": callback_url,
-        "channels": ["card", "bank", "ussd", "bank_transfer"],
+        "channels": paystack_channels,
         "metadata": {
             "customerId": user_id,
             "orderId": reference,
             "type": "deposit",
             "platform": "ATV Exchange",
+            "paymentChannel": "Ghana Mobile Money" if currency == "GHS" else "NGN checkout",
         },
     }
 
@@ -1149,7 +1197,7 @@ def initialize_paystack_deposit():
         result = http_json(
             "POST",
             "https://api.paystack.co/transaction/initialize",
-            headers=paystack_headers(),
+            headers=paystack_deposit_headers(currency),
             body=payload,
         )
         backend_log("paystack.initialize.response", {"reference": reference, "response": result})
@@ -1206,20 +1254,26 @@ def paystack_webhook_status():
         "service": "ATV Exchange Paystack Webhook",
         "method": "POST required for live webhook events",
         "configured": bool(paystack_secret_key()),
+        "ghanaConfigured": bool(paystack_ghana_secret_key()),
         "webhookUrl": APP_BASE_URL + "/api/paystack/webhook",
     })
 
 
 @app.post("/api/paystack/webhook")
 def paystack_webhook():
-    secret = paystack_secret_key()
+    secrets = paystack_webhook_secrets()
     raw_body = request.get_data() or b""
     received_signature = request.headers.get("x-paystack-signature", "")
-    if not secret:
+    if not secrets:
         backend_log("paystack.webhook.missing_secret", {})
         return json_error("Missing PAYSTACK_SECRET_KEY", 503)
-    expected_signature = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
-    if not hmac.compare_digest(received_signature, expected_signature):
+    signature_valid = False
+    for secret in secrets:
+        expected_signature = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
+        if hmac.compare_digest(received_signature, expected_signature):
+            signature_valid = True
+            break
+    if not signature_valid:
         backend_log("paystack.webhook.invalid_signature", {"received": bool(received_signature)})
         return json_error("Invalid Paystack webhook signature", 401)
     backend_log("paystack.webhook.signature_valid", {"received": True})

@@ -146,7 +146,7 @@ let walletActionBusy = false;
 let withdrawVerifyTimer = null;
 let withdrawVerifyRequestKey = "";
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260608paystackonly1";
+const appAssetVersion = "20260608ghspaystack1";
 let authChecked = false;
 window.atvAuthResolved = false;
 
@@ -1061,7 +1061,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260608paystackonly1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260608ghspaystack1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1147,7 +1147,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260608paystackonly1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260608ghspaystack1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -2537,7 +2537,7 @@ depositPaymentInstructions.innerHTML = `
 
 function calculatePaystackDepositFee(amountValue, currency){
 let amount = Number(amountValue || 0);
-let percent = 1.5;
+let percent = currency === "GHS" ? 1.95 : 1.5;
 let flat = currency === "NGN" && amount >= 2500 ? 100 : 0;
 let cap = currency === "NGN" ? 2000 : 0;
 let fee = Math.round(((amount * percent / 100) + flat) * 100) / 100;
@@ -3760,7 +3760,7 @@ depositAmountPreview.innerHTML = `
 <div class="flow-summary-grid">
 <div><span>Currency</span><b>${currency}</b></div>
 <div><span>Deposit Amount</span><b>${currency} ${format(breakdown.amount || 0)}</b></div>
-<div><span>Processing Fee</span><b>${currency} ${format(breakdown.processingFee || 0)}</b></div>
+<div><span>${currency === "GHS" ? "Paystack/MoMo Fee" : "Processing Fee"}</span><b>${currency} ${format(breakdown.processingFee || 0)}</b></div>
 <div><span>Total Amount Payable</span><b>${currency} ${format(breakdown.totalAmountPayable || 0)}</b></div>
 <div><span>Wallet Receives</span><b>${currency} ${format(breakdown.walletCreditAmount || 0)}</b></div>
 </div>
@@ -3773,18 +3773,18 @@ if(!amountValue || amountValue <= 0) return alert("Enter a valid deposit amount"
 let currency = depositCurrency.value;
 if(document.getElementById("depositMethodPrimary")){
 depositMethodPrimary.querySelector("b").innerText = "Paystack";
-depositMethodPrimaryText.innerText = "Automatic "+currency+" payment verification";
+depositMethodPrimaryText.innerText = currency === "GHS" ? "Ghana Mobile Money checkout" : "Automatic NGN payment verification";
 }
 if(document.getElementById("depositFeePreview")){
 let breakdown = paystackDepositBreakdown(amountValue, currency);
 depositFeePreview.innerHTML = `
 <div class="flow-summary-grid">
 <div><span>Deposit Amount</span><b>${currency} ${format(breakdown.amount)}</b></div>
-<div><span>Processing Fee</span><b>${currency} ${format(breakdown.processingFee)}</b></div>
-<div><span>Total Amount Payable</span><b>${currency} ${format(breakdown.totalAmountPayable)}</b></div>
+<div><span>${currency === "GHS" ? "Paystack/MoMo Fee" : "Processing Fee"}</span><b>${currency} ${format(breakdown.processingFee)}</b></div>
+<div><span>Total ${currency} to Pay</span><b>${currency} ${format(breakdown.totalAmountPayable)}</b></div>
 <div><span>Wallet Receives</span><b>${currency} ${format(breakdown.walletCreditAmount)}</b></div>
 </div>
-<p class="help">The processing fee is paid by the customer. Your wallet receives only the deposit amount.</p>
+<p class="help">${currency === "GHS" ? "MTN Mobile Money is the main option. AirtelTigo and Telecel may appear if supported by Paystack Ghana." : "Paystack NGN checkout is active."} The fee is paid by the customer. Your wallet receives only the deposit amount.</p>
 `;
 }
 showDepositStep(3);
@@ -3805,7 +3805,7 @@ return `
 <div><span>Order ID</span><b>${order.requestId || order.id}</b></div>
 <div><span>Status</span><b>${depositCustomerStatusLabel(order.status)}</b></div>
 <div><span>Deposit Amount</span><b>${order.currency} ${format(walletCredit)}</b></div>
-<div><span>Processing Fee</span><b>${order.currency} ${format(fee)}</b></div>
+<div><span>${order.currency === "GHS" ? "Paystack/MoMo Fee" : "Processing Fee"}</span><b>${order.currency} ${format(fee)}</b></div>
 <div><span>Total Paid</span><b>${order.currency} ${format(total)}</b></div>
 <div><span>Method</span><b>${method}</b></div>
 <div><span>Paystack Reference</span><b>${order.paystackReference || order.requestId || order.id || ""}</b></div>
@@ -3857,8 +3857,12 @@ listenToActiveDepositOrder(result.reference);
 window.location.href = result.authorization_url;
 }catch(error){
 appLog("Paystack deposit payment failed", error.message || error);
-if(document.getElementById("depositStatus")) depositStatus.innerText = "Could not open Paystack payment. Please try again.";
-alert("Could not open Paystack payment: "+(error.message || "Please try again."));
+let message = error.message || "Please try again.";
+if(String(message).toLowerCase().includes("ghs paystack/mobile money")){
+message = "GHS Paystack/Mobile Money is not enabled yet.";
+}
+if(document.getElementById("depositStatus")) depositStatus.innerText = "Could not open Paystack payment. "+message;
+alert("Could not open Paystack payment: "+message);
 }finally{
 setLoading("createDepositOrderBtn", false);
 }
@@ -3933,11 +3937,11 @@ let fee = Number(order.processingFee || 0);
 let total = Number(order.totalAmountPayable || order.totalAmountPaid || (Number(order.amount || 0) + fee));
 depositPaymentInstructions.innerHTML = `
 <h3>Paystack Secure Payment</h3>
-<p>Click Pay Now. Your ${order.currency || ""} wallet will be credited automatically only after Paystack confirms successful payment.</p>
+<p>${order.currency === "GHS" ? "Pay with Paystack Ghana Mobile Money. MTN Mobile Money is the main option; AirtelTigo and Telecel may appear if supported." : "Pay with Paystack NGN checkout."} Your ${order.currency || ""} wallet will be credited automatically only after Paystack confirms successful payment.</p>
 <div class="flow-summary-grid">
 <div><span>Deposit Amount</span><b>${order.currency} ${format(order.amount || 0)}</b></div>
-<div><span>Processing Fee</span><b>${order.currency} ${format(fee)}</b></div>
-<div><span>Total Amount Payable</span><b>${order.currency} ${format(total)}</b></div>
+<div><span>${order.currency === "GHS" ? "Paystack/MoMo Fee" : "Processing Fee"}</span><b>${order.currency} ${format(fee)}</b></div>
+<div><span>Total ${order.currency} to Pay</span><b>${order.currency} ${format(total)}</b></div>
 <div><span>Wallet Receives</span><b>${order.currency} ${format(order.walletCreditAmount || order.amount || 0)}</b></div>
 </div>
 ${order.paystackAuthorizationUrl ? `<button onclick="window.location.href='${escapeHtml(order.paystackAuthorizationUrl)}'">Proceed to payment</button>` : `<button onclick="resumePaystackDepositPayment('${escapeHtml(order.id || order.requestId || "")}')">Proceed to payment</button>`}
@@ -8545,7 +8549,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260608paystackonly1")
+navigator.serviceWorker.register("./sw.js?v=20260608ghspaystack1")
 .then(registration => registration.update())
 .catch(() => {});
 }

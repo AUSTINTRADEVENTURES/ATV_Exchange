@@ -1,4 +1,4 @@
-importScripts("./sw.js?v=20260608paystackonly1");
+importScripts("./sw.js?v=20260608ghspaystack1");
 
 
 
