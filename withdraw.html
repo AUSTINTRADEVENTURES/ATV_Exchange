@@ -1,11 +1,11 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
 <title>ATV Exchange - Withdraw</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="./styles.css?v=20260607paystackdebug1">
+<link rel="stylesheet" href="./styles.css?v=20260608paystackonly1">
 </head>
 
 <body>
@@ -67,18 +67,17 @@
 <input id="withdrawPaymentMethod" type="hidden" value="MTN Mobile Money">
 <div id="withdrawSavedMethodBox" class="flow-summary">Verify your payout account before continuing.</div>
 <label id="withdrawProviderLabel" for="withdrawProvider">Network</label>
-<select id="withdrawProvider" onchange="resetWithdrawalVerification()">
+<select id="withdrawProvider">
 <option value="MTN Mobile Money" data-code="MTN">MTN Mobile Money</option>
 </select>
 <label id="withdrawAccountNumberLabel" for="withdrawAccountNumber">MoMo Number</label>
-<input id="withdrawAccountNumber" inputmode="numeric" placeholder="MoMo number" oninput="resetWithdrawalVerification()">
+<input id="withdrawAccountNumber" inputmode="numeric" pattern="[0-9]*" maxlength="15" autocomplete="off" placeholder="MoMo number">
 <label id="withdrawAccountNameLabel" for="withdrawAccountName">Verified Account Name</label>
 <input id="withdrawAccountName" readonly placeholder="Verified account name will appear here">
-<button id="withdrawVerifyBtn" type="button" onclick="verifyWithdrawalPayout()">Verify Account Name</button>
 <label class="confirm-check"><input id="withdrawVerifiedConfirm" type="checkbox" onchange="updateWithdrawVerificationConfirm()"> I confirm this verified payout name is correct.</label>
 <div id="withdrawVerificationStatus" class="help"></div>
 <button class="secondary-link" onclick="showWithdrawStep(2)">Back</button>
-<button onclick="goToWithdrawReviewStep()">Continue</button>
+<button id="withdrawMethodContinueBtn" onclick="goToWithdrawReviewStep()" disabled>Continue</button>
 </section>
 
 <section id="withdrawStep4" class="flow-panel hidden">
@@ -111,7 +110,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="./app.js?v=20260607paystackdebug1"></script>
+<script src="./app.js?v=20260608paystackonly1"></script>
 </body>
 </html>
 

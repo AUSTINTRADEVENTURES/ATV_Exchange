@@ -6,13 +6,15 @@ import os
 import time
 import json
 import traceback
+import hmac
+import hashlib
 from urllib import request as urlrequest
 from urllib import parse as urlparse
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 
 app = Flask(__name__)
-APP_BUILD = "20260607paystackdebug2"
+APP_BUILD = "20260608paystackonly1"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
 PUBLIC_FILES = {
@@ -464,6 +466,205 @@ def flutterwave_headers():
     return {"Authorization": "Bearer " + secret}
 
 
+def paystack_secret_key():
+    return os.environ.get("PAYSTACK_SECRET_KEY", "").strip()
+
+
+def paystack_public_key():
+    return os.environ.get("PAYSTACK_PUBLIC_KEY", "").strip()
+
+
+def paystack_headers():
+    secret = paystack_secret_key()
+    if not secret:
+        raise ValueError("PAYSTACK_SECRET_KEY is not configured")
+    return {
+        "Authorization": "Bearer " + secret,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 ATVExchange/1.0",
+    }
+
+
+def paystack_data(data):
+    return data.get("data") if isinstance(data, dict) and isinstance(data.get("data"), dict) else {}
+
+
+def paystack_status(data):
+    nested = paystack_data(data)
+    return str(nested.get("status") or data.get("status") or "").strip().lower()
+
+
+def verify_paystack_reference(reference):
+    reference = str(reference or "").strip()
+    if not reference:
+        raise ValueError("Missing Paystack payment reference")
+    result = http_json(
+        "GET",
+        "https://api.paystack.co/transaction/verify/" + urlparse.quote(reference),
+        headers=paystack_headers(),
+    )
+    backend_log("paystack.verify.response", {"reference": reference, "response": result})
+    return result
+
+
+def calculate_paystack_deposit_fee(amount, currency):
+    amount = clean_money(amount)
+    currency = str(currency or "NGN").upper().strip()
+    percent = clean_money(os.environ.get("PAYSTACK_DEPOSIT_FEE_PERCENT", "1.5"))
+    flat = clean_money(os.environ.get("PAYSTACK_DEPOSIT_FEE_FLAT_" + currency, "100" if currency == "NGN" and amount >= 2500 else "0"))
+    cap = clean_money(os.environ.get("PAYSTACK_DEPOSIT_FEE_CAP_" + currency, "2000" if currency == "NGN" else "0"))
+    fee = round((amount * percent / 100) + flat, 2)
+    if cap > 0:
+        fee = min(fee, cap)
+    return round(fee, 2)
+
+
+def credit_paystack_verified_deposit(reference, verification_response):
+    data = paystack_data(verification_response)
+    status = str(data.get("status") or "").lower()
+    currency = str(data.get("currency") or "").upper()
+    paid_amount_kobo = clean_money(data.get("amount"))
+    paid_amount = round(paid_amount_kobo / 100, 2)
+    paystack_id = str(data.get("id") or "")
+
+    if status != "success":
+        raise ValueError("Paystack payment is not successful")
+    if currency not in {"NGN", "GHS"}:
+        raise ValueError("Paystack payment currency must be NGN or GHS")
+    if paid_amount <= 0:
+        raise ValueError("Invalid Paystack payment amount")
+
+    deposit_ref = db.collection("deposits").document(reference)
+    wallet_ref = db.collection("walletRequests").document(reference)
+    payment_ref = db.collection("paystackPayments").document(reference)
+    transaction_ref = db.collection("transactions").document("DEP-" + reference)
+    notification_ref = db.collection("notifications").document()
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def do_credit(tx):
+        deposit_doc = deposit_ref.get(transaction=tx)
+        if not deposit_doc.exists:
+            raise ValueError("Deposit order not found for reference " + reference)
+        deposit = deposit_doc.to_dict() or {}
+
+        existing_payment = payment_ref.get(transaction=tx)
+        if existing_payment.exists and (existing_payment.to_dict() or {}).get("credited") is True:
+            backend_log("paystack.credit.duplicate_ignored", {"reference": reference})
+            return {"alreadyCredited": True, "depositId": reference}
+
+        if deposit.get("credited") is True or str(deposit.get("status") or "").lower() in {"credited", "approved", "successful"}:
+            tx.set(payment_ref, {
+                "reference": reference,
+                "paystackId": paystack_id,
+                "status": status,
+                "amount": paid_amount,
+                "amountKobo": paid_amount_kobo,
+                "currency": currency,
+                "credited": True,
+                "duplicate": True,
+                "verifiedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "raw": data,
+            }, merge=True)
+            backend_log("paystack.credit.duplicate_ignored", {"reference": reference, "reason": "deposit already credited"})
+            return {"alreadyCredited": True, "depositId": reference}
+
+        expected_amount = clean_money(deposit.get("amount"))
+        expected_total = clean_money(deposit.get("totalAmountPayable") or deposit.get("paystackChargeAmount") or expected_amount)
+        processing_fee = clean_money(deposit.get("processingFee") or max(expected_total - expected_amount, 0))
+        expected_currency = str(deposit.get("currency") or "").upper()
+        if expected_currency not in {"NGN", "GHS"}:
+            raise ValueError("Deposit currency mismatch")
+        if expected_currency != currency:
+            raise ValueError("Payment currency mismatch")
+        if round(expected_total, 2) != round(paid_amount, 2):
+            raise ValueError("Payment amount mismatch")
+
+        customer_id = deposit.get("customerId") or deposit.get("user_id")
+        if not customer_id:
+            raise ValueError("Deposit customer ID is missing")
+
+        balance_ref = db.collection("balances").document(customer_id)
+        balance_doc = balance_ref.get(transaction=tx)
+        balance = balance_doc.to_dict() if balance_doc.exists else {}
+        balance_field = "ngn" if expected_currency == "NGN" else "ghs"
+        current_balance = clean_money((balance or {}).get(balance_field, 0))
+        new_balance = clean_money(current_balance + expected_amount)
+        now_text = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        tx.set(balance_ref, {
+            balance_field: new_balance,
+            "updatedAt": now_text,
+            "lastDepositId": reference,
+        }, merge=True)
+        update_payload = {
+            "status": "credited",
+            "paymentStatus": "success",
+            "paymentProvider": "paystack",
+            "paystackStatus": "success",
+            "paystackId": paystack_id,
+            "paystackReference": reference,
+            "processingFee": processing_fee,
+            "totalAmountPaid": paid_amount,
+            "walletCreditAmount": expected_amount,
+            "paymentVerified": True,
+            "credited": True,
+            "creditedAt": now_text,
+            "updatedAt": now_text,
+            "balanceBeforeCredit": current_balance,
+            "balanceAfterCredit": new_balance,
+        }
+        tx.set(deposit_ref, update_payload, merge=True)
+        tx.set(wallet_ref, {**update_payload, "status": "Successful"}, merge=True)
+        tx.set(payment_ref, {
+            "reference": reference,
+            "paystackId": paystack_id,
+            "status": status,
+            "amount": paid_amount,
+            "amountKobo": paid_amount_kobo,
+            "depositAmount": expected_amount,
+            "processingFee": processing_fee,
+            "walletCreditAmount": expected_amount,
+            "currency": currency,
+            "customerId": customer_id,
+            "depositId": reference,
+            "credited": True,
+            "verifiedAt": now_text,
+            "raw": data,
+        }, merge=True)
+        tx.set(transaction_ref, {
+            "orderID": "DEP-" + reference,
+            "requestId": reference,
+            "type": "deposit",
+            "customerId": customer_id,
+            "customerEmail": deposit.get("customerEmail", ""),
+            "currency": expected_currency,
+            "amount": expected_amount,
+            "converted": expected_amount,
+            "processingFee": processing_fee,
+            "totalAmountPaid": paid_amount,
+            "walletCreditAmount": expected_amount,
+            "status": "Completed",
+            "paymentProvider": "paystack",
+            "paymentReference": reference,
+            "paystackId": paystack_id,
+            "date": now_text,
+            "createdAt": now_text,
+        }, merge=True)
+        tx.set(notification_ref, {
+            "forUserId": customer_id,
+            "type": "deposit",
+            "title": "Deposit Confirmed",
+            "message": "Your " + expected_currency + " wallet has been credited successfully.",
+            "depositId": reference,
+            "createdAt": now_text,
+            "read": False,
+        }, merge=True)
+        backend_log("paystack.credit.success", {"reference": reference, "customerId": customer_id, "amount": expected_amount, "processingFee": processing_fee, "totalPaid": paid_amount, "currency": expected_currency})
+        return {"alreadyCredited": False, "depositId": reference, "customerId": customer_id, "amount": expected_amount, "processingFee": processing_fee, "totalPaid": paid_amount, "currency": expected_currency}
+
+    return do_credit(transaction)
+
+
 def flutterwave_status(data):
     if not isinstance(data, dict):
         return ""
@@ -640,6 +841,11 @@ def payout_verification_diagnostics():
             "hasSecretHash": bool(flutterwave_secret_hash()),
             "webhookUrl": APP_BASE_URL + "/api/flutterwave/webhook",
         },
+        "paystackDeposits": {
+            "configured": bool(paystack_secret_key()),
+            "hasPublicKey": bool(paystack_public_key()),
+            "webhookUrl": APP_BASE_URL + "/api/paystack/webhook",
+        },
         "ngnBankVerification": {
             "configured": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip()),
             "paystack": bool(os.environ.get("PAYSTACK_SECRET_KEY", "").strip()),
@@ -734,7 +940,10 @@ def verify_ngn_bank():
     try:
         req = urlrequest.Request(paystack_url, method="GET")
         req.add_header("Accept", "application/json")
+        req.add_header("Accept-Language", "en-US,en;q=0.9")
         req.add_header("Authorization", "Bearer " + paystack_secret)
+        req.add_header("Referer", "https://www.atvexchange.net/")
+        req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 ATVExchange/1.0")
         with urlrequest.urlopen(req, timeout=18) as response:
             raw = response.read().decode("utf-8")
             result = json.loads(raw or "{}")
@@ -779,6 +988,8 @@ def verify_ngn_bank():
         except Exception:
             result = {}
         message = result.get("message") or result.get("error") or raw or "Paystack rejected the bank account verification request"
+        if isinstance(message, str) and ("error-1010" in message.lower() or "browser_signature_banned" in message.lower() or "cloudflare" in message.lower()):
+            message = "Paystack blocked the backend request signature. Please contact support while we retry with updated server headers."
         backend_log("bank.verify.paystack.http_error", {
             "status": exc.code,
             "message": message,
@@ -853,8 +1064,187 @@ def verify_ghs_momo():
         return json_error("MoMo verification failed: " + str(exc), 500)
 
 
+@app.post("/api/paystack/initialize-deposit")
+def initialize_paystack_deposit():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+
+    data = request.get_json(silent=True) or {}
+    amount = clean_money(data.get("amount"))
+    currency = str(data.get("currency") or "NGN").upper().strip()
+    customer_email = str(data.get("email") or decoded.get("email") or "").strip()
+    customer_name = str(data.get("customerName") or data.get("name") or customer_email or "ATV customer").strip()
+    user_id = str(decoded.get("uid") or "").strip()
+
+    if not paystack_secret_key():
+        return json_error("Missing PAYSTACK_SECRET_KEY", 503)
+    if currency not in {"NGN", "GHS"}:
+        return json_error("Paystack automatic deposit is for NGN and GHS only")
+    if amount <= 0:
+        return json_error("Enter a valid deposit amount")
+    if not customer_email:
+        return json_error("Customer email is required")
+
+    reference = "ATV-DEP-" + user_id[:10] + "-" + str(int(time.time() * 1000))
+    now_ms = int(time.time() * 1000)
+    now_text = time.strftime("%Y-%m-%d %H:%M:%S")
+    processing_fee = calculate_paystack_deposit_fee(amount, currency)
+    total_amount = round(amount + processing_fee, 2)
+    amount_kobo = int(round(total_amount * 100))
+    callback_url = APP_BASE_URL + "/deposit.html?paystack_reference=" + urlparse.quote(reference)
+    deposit_data = {
+        "id": reference,
+        "requestId": reference,
+        "customerId": user_id,
+        "user_id": user_id,
+        "customerEmail": customer_email,
+        "customerName": customer_name,
+        "username": str(data.get("username") or ""),
+        "currency": currency,
+        "amount": amount,
+        "depositAmount": amount,
+        "processingFee": processing_fee,
+        "totalAmountPayable": total_amount,
+        "walletCreditAmount": amount,
+        "amountKobo": amount_kobo,
+        "status": "awaiting paystack payment",
+        "type": "deposit",
+        "paymentProvider": "paystack",
+        "paymentStatus": "pending",
+        "paymentVerificationRequired": True,
+        "paymentVerified": False,
+        "credited": False,
+        "paystackReference": reference,
+        "createdAt": now_text,
+        "created_at": now_text,
+        "createdAtMs": now_ms,
+        "updatedAt": now_text,
+    }
+
+    payload = {
+        "email": customer_email,
+        "amount": amount_kobo,
+        "currency": currency,
+        "reference": reference,
+        "callback_url": callback_url,
+        "channels": ["card", "bank", "ussd", "bank_transfer"],
+        "metadata": {
+            "customerId": user_id,
+            "orderId": reference,
+            "type": "deposit",
+            "platform": "ATV Exchange",
+        },
+    }
+
+    try:
+        db.collection("deposits").document(reference).set(deposit_data, merge=True)
+        db.collection("walletRequests").document(reference).set({
+            **deposit_data,
+            "status": "Pending",
+            "manualMomoDeposit": False,
+        }, merge=True)
+        backend_log("paystack.deposit.initialized", {"reference": reference, "amount": amount, "processingFee": processing_fee, "totalAmountPayable": total_amount, "amountKobo": amount_kobo, "currency": currency, "userId": user_id})
+        result = http_json(
+            "POST",
+            "https://api.paystack.co/transaction/initialize",
+            headers=paystack_headers(),
+            body=payload,
+        )
+        backend_log("paystack.initialize.response", {"reference": reference, "response": result})
+        payment_data = paystack_data(result)
+        authorization_url = payment_data.get("authorization_url") or result.get("authorization_url")
+        access_code = payment_data.get("access_code") or result.get("access_code")
+        if not authorization_url:
+            return json_error("Paystack did not return a checkout link", 502)
+        db.collection("deposits").document(reference).set({
+            "paystackInitializeResponse": result,
+            "paystackAuthorizationUrl": authorization_url,
+            "paystackAccessCode": access_code,
+            "updatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }, merge=True)
+        return jsonify({
+            "ok": True,
+            "provider": "paystack",
+            "reference": reference,
+            "authorization_url": authorization_url,
+            "access_code": access_code,
+            "amount": amount,
+            "processingFee": processing_fee,
+            "totalAmountPayable": total_amount,
+            "walletCreditAmount": amount,
+            "currency": currency,
+        })
+    except ValueError as exc:
+        backend_log("paystack.initialize.error", {"reference": reference, "error": str(exc)})
+        return json_error(str(exc), 400)
+    except Exception as exc:
+        backend_log("paystack.initialize.exception", {"reference": reference, "error": str(exc), "trace": traceback.format_exc()})
+        return json_error("Paystack deposit could not be initialized", 500)
+
+
+@app.get("/api/paystack/verify/<reference>")
+def verify_paystack_deposit(reference):
+    try:
+        result = verify_paystack_reference(reference)
+        credit_result = credit_paystack_verified_deposit(reference, result)
+        backend_log("paystack.verify.success", {"reference": reference, "credit": credit_result})
+        return jsonify({"ok": True, "reference": reference, "verification": result, "credit": credit_result})
+    except ValueError as exc:
+        backend_log("paystack.verify.failed", {"reference": reference, "error": str(exc)})
+        return json_error(str(exc), 400)
+    except Exception as exc:
+        backend_log("paystack.verify.exception", {"reference": reference, "error": str(exc), "trace": traceback.format_exc()})
+        return json_error("Paystack verification failed", 500)
+
+
+@app.get("/api/paystack/webhook")
+def paystack_webhook_status():
+    return jsonify({
+        "ok": True,
+        "service": "ATV Exchange Paystack Webhook",
+        "method": "POST required for live webhook events",
+        "configured": bool(paystack_secret_key()),
+        "webhookUrl": APP_BASE_URL + "/api/paystack/webhook",
+    })
+
+
+@app.post("/api/paystack/webhook")
+def paystack_webhook():
+    secret = paystack_secret_key()
+    raw_body = request.get_data() or b""
+    received_signature = request.headers.get("x-paystack-signature", "")
+    if not secret:
+        backend_log("paystack.webhook.missing_secret", {})
+        return json_error("Missing PAYSTACK_SECRET_KEY", 503)
+    expected_signature = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
+    if not hmac.compare_digest(received_signature, expected_signature):
+        backend_log("paystack.webhook.invalid_signature", {"received": bool(received_signature)})
+        return json_error("Invalid Paystack webhook signature", 401)
+    backend_log("paystack.webhook.signature_valid", {"received": True})
+
+    payload = request.get_json(silent=True) or {}
+    backend_log("paystack.webhook.received", payload)
+    event = str(payload.get("event") or "").lower()
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    reference = str(data.get("reference") or "").strip()
+    if not reference:
+        return json_error("Missing Paystack payment reference", 400)
+
+    try:
+        verification = verify_paystack_reference(reference)
+        credit_result = credit_paystack_verified_deposit(reference, verification)
+        backend_log("paystack.webhook.credited", {"reference": reference, "event": event, "credit": credit_result})
+        return jsonify({"ok": True, "reference": reference, "credit": credit_result})
+    except Exception as exc:
+        backend_log("paystack.webhook.failed", {"reference": reference, "event": event, "error": str(exc), "trace": traceback.format_exc()})
+        return json_error("Webhook verification failed: " + str(exc), 400)
+
+
 @app.post("/api/flutterwave/create-payment")
 def create_flutterwave_payment():
+    return json_error("Flutterwave deposit is disabled. Use Paystack deposit only.", 410)
     try:
         decoded = require_signed_in_request()
     except PermissionError as exc:

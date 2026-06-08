@@ -1,4 +1,4 @@
-﻿// FIREBASE CONFIG
+// FIREBASE CONFIG
 const firebaseConfig = {
 apiKey: "AIzaSyBQiE6s-oBHwmFcBe_7ghcYb6hEZytTFXw",
 authDomain: "atvexchange.firebaseapp.com",
@@ -143,8 +143,10 @@ let balancesHidden = false;
 let activeBalanceCurrency = "GHS";
 let liveBalances = {ghs:0, ngn:0};
 let walletActionBusy = false;
+let withdrawVerifyTimer = null;
+let withdrawVerifyRequestKey = "";
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260607paystackdebug2";
+const appAssetVersion = "20260608paystackonly1";
 let authChecked = false;
 window.atvAuthResolved = false;
 
@@ -1059,7 +1061,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260607paystackdebug1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260608paystackonly1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1145,7 +1147,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260607paystackdebug1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260608paystackonly1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -2527,26 +2529,27 @@ function updateDepositPaymentInstructions(){
 if(!document.getElementById("depositPaymentInstructions")) return;
 
 let currency = depositCurrency.value;
-let details = getDepositPaymentDetails(currency);
-
-if(currency === "NGN"){
 depositPaymentInstructions.innerHTML = `
-<b>NGN Bank Deposit Instructions</b>
-<p>Send payment to OPay account:</p>
-<h2>${details.accountNumber}</h2>
-<p><b>Bank:</b> ${details.network}</p>
-<p><b>Account Name:</b> ${details.accountHolderName}</p>
+<b>${currency} Paystack Deposit</b>
+<p>Proceed to Paystack checkout. Your ${currency} wallet will be credited automatically after successful payment confirmation.</p>
 `;
-return;
 }
 
-depositPaymentInstructions.innerHTML = `
-<b>GHS MoMo Deposit Instructions</b>
-<p>Send payment to MTN MoMo number:</p>
-<h2>${details.accountNumber}</h2>
-<p><b>Business Name:</b> ${details.businessName}</p>
-<p><b>Account Holder:</b> ${details.accountHolderName}</p>
-`;
+function calculatePaystackDepositFee(amountValue, currency){
+let amount = Number(amountValue || 0);
+let percent = 1.5;
+let flat = currency === "NGN" && amount >= 2500 ? 100 : 0;
+let cap = currency === "NGN" ? 2000 : 0;
+let fee = Math.round(((amount * percent / 100) + flat) * 100) / 100;
+if(cap > 0) fee = Math.min(fee, cap);
+return Math.round(fee * 100) / 100;
+}
+
+function paystackDepositBreakdown(amountValue, currency){
+let amount = Math.round(Number(amountValue || 0) * 100) / 100;
+let processingFee = calculatePaystackDepositFee(amount, currency);
+let totalAmountPayable = Math.round((amount + processingFee) * 100) / 100;
+return {amount, processingFee, totalAmountPayable, walletCreditAmount: amount};
 }
 
 function setLoading(buttonId, isLoading, loadingText){
@@ -3266,19 +3269,30 @@ if(document.getElementById("paymentAccountName")) paymentAccountName.value = pro
 if(document.getElementById("paymentAccountNumber")) paymentAccountNumber.value = profile.paymentAccountNumber || "";
 }
 
+function sanitizePaymentAccountNumber(input){
+if(!input) return "";
+let method = document.getElementById("preferredPaymentMethod") ? preferredPaymentMethod.value : "";
+let maxLength = method === "bank-transfer" ? 10 : 15;
+let cleaned = String(input.value || "").replace(/\D/g, "").slice(0, maxLength);
+if(input.value !== cleaned) input.value = cleaned;
+return cleaned;
+}
+
 async function savePaymentMethod(){
 if(!currentUser) return alert("Login first");
 if(!(await ensureAccountCanUseSensitiveAction("payment method"))) return;
 if(!preferredPaymentMethod.value) return alert("Select payment method");
 if(!paymentProvider.value.trim()) return alert("Enter provider or bank name");
 if(!paymentAccountName.value.trim()) return alert("Enter account name");
-if(!paymentAccountNumber.value.trim()) return alert("Enter account or wallet number");
+let accountNumberValue = sanitizePaymentAccountNumber(paymentAccountNumber);
+if(!accountNumberValue) return alert("Enter account or wallet number");
+if(preferredPaymentMethod.value === "bank-transfer" && !/^[0-9]{10}$/.test(accountNumberValue)) return alert("Enter a valid 10-digit Nigerian account number");
 
 await db.collection("users").doc(currentUser.uid).set({
 preferredPaymentMethod: preferredPaymentMethod.value,
 paymentProvider: paymentProvider.value.trim(),
 paymentAccountName: paymentAccountName.value.trim(),
-paymentAccountNumber: paymentAccountNumber.value.trim(),
+paymentAccountNumber: accountNumberValue,
 updatedAt: new Date().toLocaleString()
 },{merge:true});
 if(document.getElementById("paymentMethodStatus")) paymentMethodStatus.innerText = "Payment method saved.";
@@ -3692,6 +3706,16 @@ return data;
 async function loadDepositPage(){
 await loadRateSettings();
 updateDepositPaymentInstructions();
+let params = new URLSearchParams(window.location.search || "");
+let paystackReference = params.get("paystack_reference") || params.get("reference") || params.get("trxref") || "";
+if(paystackReference){
+localStorage.setItem("activeDepositOrderId", paystackReference);
+listenToActiveDepositOrder(paystackReference);
+if(document.getElementById("depositStatus")) depositStatus.innerText = "Payment processing, checking confirmation...";
+showDepositStep(5);
+verifyPaystackDepositAfterReturn(paystackReference);
+return;
+}
 showDepositStep(1);
 let activeDepositId = localStorage.getItem("activeDepositOrderId");
 if(activeDepositId){
@@ -3707,8 +3731,8 @@ if(el) el.classList.toggle("hidden", id !== "depositStep"+step);
 let titles = {
 1:"Select Deposit Currency",
 2:"Enter Deposit Amount",
-3:"Select Deposit Method",
-4:"Payment Instruction",
+3:"Review Paystack Payment",
+4:"Paystack Checkout",
 5:"Waiting for Confirmation"
 };
 if(document.getElementById("depositStepCount")) depositStepCount.innerText = "Step "+step+" of 5";
@@ -3731,11 +3755,14 @@ function updateDepositAmountPreview(){
 if(!document.getElementById("depositAmountPreview")) return;
 let currency = document.getElementById("depositCurrency") ? depositCurrency.value : "GHS";
 let amountValue = moneyInputValue("depositAmount");
+let breakdown = paystackDepositBreakdown(amountValue, currency);
 depositAmountPreview.innerHTML = `
 <div class="flow-summary-grid">
 <div><span>Currency</span><b>${currency}</b></div>
-<div><span>Deposit Amount</span><b>${currency} ${format(amountValue || 0)}</b></div>
-<div><span>Limit</span><b>No limit set</b></div>
+<div><span>Deposit Amount</span><b>${currency} ${format(breakdown.amount || 0)}</b></div>
+<div><span>Processing Fee</span><b>${currency} ${format(breakdown.processingFee || 0)}</b></div>
+<div><span>Total Amount Payable</span><b>${currency} ${format(breakdown.totalAmountPayable || 0)}</b></div>
+<div><span>Wallet Receives</span><b>${currency} ${format(breakdown.walletCreditAmount || 0)}</b></div>
 </div>
 `;
 }
@@ -3745,9 +3772,20 @@ let amountValue = moneyInputValue("depositAmount");
 if(!amountValue || amountValue <= 0) return alert("Enter a valid deposit amount");
 let currency = depositCurrency.value;
 if(document.getElementById("depositMethodPrimary")){
-let isGhs = currency === "GHS";
-depositMethodPrimary.querySelector("b").innerText = isGhs ? "MTN Mobile Money" : "Flutterwave";
-depositMethodPrimaryText.innerText = isGhs ? "Active for GHS deposits" : "Automatic NGN payment verification";
+depositMethodPrimary.querySelector("b").innerText = "Paystack";
+depositMethodPrimaryText.innerText = "Automatic "+currency+" payment verification";
+}
+if(document.getElementById("depositFeePreview")){
+let breakdown = paystackDepositBreakdown(amountValue, currency);
+depositFeePreview.innerHTML = `
+<div class="flow-summary-grid">
+<div><span>Deposit Amount</span><b>${currency} ${format(breakdown.amount)}</b></div>
+<div><span>Processing Fee</span><b>${currency} ${format(breakdown.processingFee)}</b></div>
+<div><span>Total Amount Payable</span><b>${currency} ${format(breakdown.totalAmountPayable)}</b></div>
+<div><span>Wallet Receives</span><b>${currency} ${format(breakdown.walletCreditAmount)}</b></div>
+</div>
+<p class="help">The processing fee is paid by the customer. Your wallet receives only the deposit amount.</p>
+`;
 }
 showDepositStep(3);
 }
@@ -3758,13 +3796,19 @@ if(document.getElementById("depositMethodPrimary")) depositMethodPrimary.classLi
 }
 
 function depositSummary(order){
-let method = order.paymentProvider === "flutterwave" ? "Flutterwave Secure Payment" : (order.currency === "GHS" ? "MTN Mobile Money" : "OPay Bank Transfer");
+let method = "Paystack Secure Payment";
+let fee = Number(order.processingFee || 0);
+let total = Number(order.totalAmountPaid || order.totalAmountPayable || order.paystackChargeAmount || (Number(order.amount || 0) + fee));
+let walletCredit = Number(order.walletCreditAmount || order.depositAmount || order.amount || 0);
 return `
 <div class="flow-summary-grid">
 <div><span>Order ID</span><b>${order.requestId || order.id}</b></div>
 <div><span>Status</span><b>${depositCustomerStatusLabel(order.status)}</b></div>
-<div><span>Amount</span><b>${order.currency} ${format(order.amount || 0)}</b></div>
+<div><span>Deposit Amount</span><b>${order.currency} ${format(walletCredit)}</b></div>
+<div><span>Processing Fee</span><b>${order.currency} ${format(fee)}</b></div>
+<div><span>Total Paid</span><b>${order.currency} ${format(total)}</b></div>
 <div><span>Method</span><b>${method}</b></div>
+<div><span>Paystack Reference</span><b>${order.paystackReference || order.requestId || order.id || ""}</b></div>
 </div>
 `;
 }
@@ -3772,6 +3816,7 @@ return `
 function depositCustomerStatusLabel(status){
 let value = String(status || "Created").toLowerCase();
 if(value === "created") return "Created";
+if(value === "awaiting paystack payment") return "Awaiting Paystack Payment";
 if(value === "awaiting flutterwave payment") return "Awaiting Flutterwave Payment";
 if(value === "payment submitted" || value === "pending") return "Payment Submitted";
 if(value === "verification") return "Deposit Verification";
@@ -3788,119 +3833,77 @@ let amountValue = moneyInputValue("depositAmount");
 if(!amountValue || amountValue <= 0) return alert("Enter a valid deposit amount");
 
 let profile = await getCustomerProfile();
-let paymentDetails = getDepositPaymentDetails(currency);
-let requestId = "DEP-"+Date.now();
-let now = Date.now();
-let deadline = now + 15 * 60 * 1000;
-let depositData = {
-id: requestId,
-requestId,
-customerId: currentUser.uid,
-user_id: currentUser.uid,
-customerEmail: currentUser.email,
-customerName: profile ? profile.name : "",
-username: profile ? (profile.username || "") : "",
-currency,
-amount: amountValue,
-network: paymentDetails.network,
-momoNumber: currency === "GHS" ? paymentDetails.accountNumber : "",
-bankName: currency === "NGN" ? paymentDetails.network : "",
-accountNumber: paymentDetails.accountNumber,
-businessName: paymentDetails.businessName,
-accountHolderName: paymentDetails.accountHolderName,
-status: "created",
-type: "deposit",
-paymentProvider: currency === "NGN" ? "flutterwave" : "manual",
-paymentVerificationRequired: currency === "NGN",
-createdAt: new Date(now).toLocaleString(),
-created_at: new Date(now).toLocaleString(),
-createdAtMs: now,
-paymentDeadlineAt: deadline,
-paymentDeadlineLabel: new Date(deadline).toLocaleString(),
-updatedAt: new Date(now).toLocaleString()
-};
-
-try{
-await Promise.all([
-db.collection("deposits").doc(requestId).set(depositData),
-db.collection("walletRequests").doc(requestId).set({...depositData,type:"deposit",status:"Pending",manualMomoDeposit:true}),
-db.collection("notifications").add({
-forRole: "admin",
-type: "deposit",
-title: "New deposit order",
-message: currentUser.email+" created "+currency+" "+format(amountValue)+" deposit order.",
-depositId: requestId,
-customerId: currentUser.uid,
-createdAt: new Date(now).toLocaleString(),
-read: false,
-...adminOrderNotification("deposits", requestId, {type:"deposit", status:"created"})
-})
-]);
-localStorage.setItem("activeDepositOrderId", requestId);
-listenToActiveDepositOrder(requestId);
-await notifyBackendAdmins(
-"New deposit order",
-currentUser.email+" created "+currency+" "+format(amountValue)+" deposit order.",
-orderDetailUrl("deposits", requestId),
-adminOrderNotification("deposits", requestId, {type:"deposit", status:"created"}).data
-);
-showToast("Deposit order created");
-if(currency === "NGN"){
-await startFlutterwaveDepositPayment(requestId, amountValue, currency, profile);
-}
-}catch(error){
-if(document.getElementById("depositStatus")) depositStatus.innerText = "Could not create deposit: "+error.message;
-alert("Could not create deposit: "+error.message);
-}
+await startPaystackDepositPayment(amountValue, profile);
+return;
 }
 
-async function startFlutterwaveDepositPayment(requestId, amountValue, currency, profile){
+async function startPaystackDepositPayment(amountValue, profile){
 try{
-if(document.getElementById("depositStatus")) depositStatus.innerText = "Opening Flutterwave secure payment...";
+if(document.getElementById("depositStatus")) depositStatus.innerText = "Opening Paystack secure payment...";
 setLoading("createDepositOrderBtn", true, "Opening payment...");
-let result = await callPushBackend("/api/flutterwave/create-payment", {
-tx_ref: requestId,
-orderId: requestId,
-requestId,
+let currency = document.getElementById("depositCurrency") ? depositCurrency.value : "NGN";
+let result = await callPushBackend("/api/paystack/initialize-deposit", {
 amount: amountValue,
 currency,
 email: currentUser.email,
-customerName: profile ? (profile.name || profile.fullName || profile.username || currentUser.email) : currentUser.email
+customerName: profile ? (profile.name || profile.fullName || profile.username || currentUser.email) : currentUser.email,
+username: profile ? (profile.username || "") : ""
 });
-if(!result || result.ok === false || !result.paymentLink){
-throw new Error((result && (result.message || result.error)) || "Could not create Flutterwave payment link");
+if(!result || result.ok === false || !result.authorization_url){
+throw new Error((result && (result.message || result.error)) || "Could not create Paystack payment link");
+}
+localStorage.setItem("activeDepositOrderId", result.reference);
+listenToActiveDepositOrder(result.reference);
+window.location.href = result.authorization_url;
+}catch(error){
+appLog("Paystack deposit payment failed", error.message || error);
+if(document.getElementById("depositStatus")) depositStatus.innerText = "Could not open Paystack payment. Please try again.";
+alert("Could not open Paystack payment: "+(error.message || "Please try again."));
+}finally{
+setLoading("createDepositOrderBtn", false);
+}
 }
 
-async function resumeFlutterwaveDepositPayment(){
-let requestId = localStorage.getItem("activeDepositOrderId");
+async function resumePaystackDepositPayment(requestId){
+requestId = requestId || localStorage.getItem("activeDepositOrderId");
 if(!requestId) return alert("Create deposit order first");
 try{
 let doc = await db.collection("deposits").doc(requestId).get();
 if(!doc.exists) throw new Error("Deposit order not found");
 let order = doc.data();
-if(order.flutterwavePaymentLink){
-window.location.href = order.flutterwavePaymentLink;
+let link = order.paystackAuthorizationUrl || order.authorization_url || order.paymentLink;
+if(link){
+window.location.href = link;
 return;
 }
-await startFlutterwaveDepositPayment(requestId, Number(order.amount || 0), order.currency || "NGN", {name: order.customerName || order.username || order.customerEmail || ""});
+await startPaystackDepositPayment(Number(order.amount || 0), {name: order.customerName || order.username || order.customerEmail || ""});
 }catch(error){
-alert("Could not reopen Flutterwave payment: "+error.message);
+alert("Could not reopen Paystack payment: "+error.message);
 }
 }
-await db.collection("deposits").doc(requestId).set({
-status: "awaiting flutterwave payment",
-paymentProvider: "flutterwave",
-flutterwavePaymentLink: result.paymentLink,
-updatedAt: new Date().toLocaleString()
-},{merge:true});
-window.location.href = result.paymentLink;
+
+async function verifyPaystackDepositAfterReturn(reference){
+try{
+let idToken = await getCurrentIdToken();
+let response = await fetch(backendUrl("/api/paystack/verify/"+encodeURIComponent(reference)), {
+method: "GET",
+headers: {"Authorization": "Bearer "+idToken}
+});
+let result = {};
+try{ result = await response.json(); }catch(error){ result = {}; }
+if(!response.ok || !result || result.ok === false){
+appLog("Paystack return verify pending", result);
+return;
+}
+showToast("Payment confirmation received");
 }catch(error){
-appLog("Flutterwave deposit payment failed", error.message || error);
-if(document.getElementById("depositStatus")) depositStatus.innerText = "Could not open Flutterwave payment. Please try again.";
-alert("Could not open Flutterwave payment. Please try again.");
-}finally{
-setLoading("createDepositOrderBtn", false);
+appLog("Paystack return verify skipped", error.message || error);
 }
+}
+
+async function startFlutterwaveDepositPayment(requestId, amountValue, currency, profile){
+appLog("Flutterwave deposit skipped", "Paystack is the only active deposit gateway.");
+alert("Paystack is the only active deposit gateway for now.");
 }
 
 function listenToActiveDepositOrder(id){
@@ -3919,22 +3922,30 @@ if(document.getElementById("depositCurrency")) depositCurrency.value = order.cur
 if(document.getElementById("depositOrderSummary")) depositOrderSummary.innerHTML = depositSummary(order);
 if(document.getElementById("depositLiveStatus")) depositLiveStatus.innerHTML = depositSummary(order);
 if(document.getElementById("depositPaymentInstructions")) updateDepositPaymentInstructions();
-setDepositProofFieldsVisible(order.paymentProvider !== "flutterwave");
+setDepositProofFieldsVisible(false);
 
 let status = String(order.status || "created").toLowerCase();
-if(status === "created" || status === "awaiting flutterwave payment"){
+if(status === "created" || status === "awaiting flutterwave payment" || status === "awaiting paystack payment"){
 showDepositStep(4);
 startDepositCountdown(order);
-if(order.paymentProvider === "flutterwave" && document.getElementById("depositPaymentInstructions")){
+if(document.getElementById("depositPaymentInstructions")){
+let fee = Number(order.processingFee || 0);
+let total = Number(order.totalAmountPayable || order.totalAmountPaid || (Number(order.amount || 0) + fee));
 depositPaymentInstructions.innerHTML = `
-<h3>Flutterwave Secure Payment</h3>
-<p>Your deposit will be credited only after Flutterwave confirms successful payment.</p>
-${order.flutterwavePaymentLink ? `<button onclick="window.location.href='${escapeHtml(order.flutterwavePaymentLink)}'">Continue to Flutterwave</button>` : `<button onclick="resumeFlutterwaveDepositPayment()">Open Flutterwave Payment</button>`}
+<h3>Paystack Secure Payment</h3>
+<p>Click Pay Now. Your ${order.currency || ""} wallet will be credited automatically only after Paystack confirms successful payment.</p>
+<div class="flow-summary-grid">
+<div><span>Deposit Amount</span><b>${order.currency} ${format(order.amount || 0)}</b></div>
+<div><span>Processing Fee</span><b>${order.currency} ${format(fee)}</b></div>
+<div><span>Total Amount Payable</span><b>${order.currency} ${format(total)}</b></div>
+<div><span>Wallet Receives</span><b>${order.currency} ${format(order.walletCreditAmount || order.amount || 0)}</b></div>
+</div>
+${order.paystackAuthorizationUrl ? `<button onclick="window.location.href='${escapeHtml(order.paystackAuthorizationUrl)}'">Proceed to payment</button>` : `<button onclick="resumePaystackDepositPayment('${escapeHtml(order.id || order.requestId || "")}')">Proceed to payment</button>`}
 `;
 }
 
 function setDepositProofFieldsVisible(visible){
-["depositSenderName","depositTransactionId","depositScreenshot","depositBtn"].forEach(id=>{
+["depositSenderName","depositTransactionId","depositScreenshot","depositBtn","depositManualWarning"].forEach(id=>{
 let el = document.getElementById(id);
 if(el) el.classList.toggle("hidden", !visible);
 });
@@ -4536,6 +4547,7 @@ window.withdrawState = window.withdrawState || {currency:"GHS", balances:{ghs:0,
 
 selectWithdrawCurrency("GHS");
 showWithdrawStep(1);
+bindWithdrawAutoVerification();
 
 db.collection("balances").doc(currentUser.uid).onSnapshot(doc=>{
 let data = doc.exists ? doc.data() : {};
@@ -4573,6 +4585,7 @@ let titles = {
 };
 if(document.getElementById("withdrawStepCount")) withdrawStepCount.innerText = "Step "+step+" of 5";
 if(document.getElementById("withdrawStepTitle")) withdrawStepTitle.innerText = titles[step] || "";
+if(step === 3) bindWithdrawAutoVerification();
 }
 
 function selectWithdrawCurrency(currency){
@@ -4597,15 +4610,21 @@ withdrawProvider.innerHTML = isNgn ? nigerianBankOptionsHtml() : '<option value=
 if(document.getElementById("withdrawProviderLabel")) withdrawProviderLabel.innerText = isNgn ? "Bank Name" : "Network";
 if(document.getElementById("withdrawAccountNumberLabel")) withdrawAccountNumberLabel.innerText = isNgn ? "Account Number" : "MoMo Number";
 if(document.getElementById("withdrawAccountNameLabel")) withdrawAccountNameLabel.innerText = isNgn ? "Verified Account Name" : "Verified MoMo Name";
-if(document.getElementById("withdrawAccountNumber")) withdrawAccountNumber.placeholder = isNgn ? "Enter 10-digit account number" : "Enter MTN MoMo number";
+if(document.getElementById("withdrawAccountNumber")){
+withdrawAccountNumber.placeholder = isNgn ? "Enter 10-digit account number" : "Enter MTN MoMo number";
+withdrawAccountNumber.setAttribute("inputmode", "numeric");
+withdrawAccountNumber.setAttribute("pattern", "[0-9]*");
+withdrawAccountNumber.setAttribute("autocomplete", "off");
+withdrawAccountNumber.setAttribute("maxlength", isNgn ? "10" : "15");
+}
 if(document.getElementById("withdrawAccountName")) withdrawAccountName.placeholder = isNgn ? "Verified bank account name will appear here" : "Verified MoMo name will appear here";
-if(document.getElementById("withdrawVerifyBtn")) withdrawVerifyBtn.innerText = isNgn ? "Verify Bank Account" : "Verify MoMo Name";
 if(document.getElementById("withdrawSavedMethodBox")){
 withdrawSavedMethodBox.innerHTML = isNgn
-? "<b>NGN rule:</b> Choose bank, enter account number, then verify the account name before withdrawal."
-: "<b>GHS rule:</b> Enter MTN Mobile Money number, then verify the MoMo account name before withdrawal.";
+? "<b>NGN rule:</b> Choose bank and enter a 10-digit account number. We will verify the name automatically."
+: "<b>GHS rule:</b> Enter MTN Mobile Money number for payout.";
 }
 resetWithdrawalVerification();
+bindWithdrawAutoVerification();
 }
 
 function nigerianBankOptionsHtml(){
@@ -4631,32 +4650,127 @@ let banks = [
 ["Wema Bank","035"],
 ["Zenith Bank","057"]
 ];
-return '<option value="">Select bank</option>'+banks.map(bank=>`<option value="${bank[0]}" data-code="${bank[1]}">${bank[0]}</option>`).join("");
+return '<option value="">Select bank</option>'+banks.map(bank=>`<option value="${bank[1]}" data-code="${bank[1]}">${bank[0]}</option>`).join("");
 }
 
 function resetWithdrawalVerification(){
 window.withdrawState = window.withdrawState || {};
 window.withdrawState.payoutVerified = false;
 window.withdrawState.payoutDetails = null;
+withdrawVerifyRequestKey = "";
+if(withdrawVerifyTimer){
+clearTimeout(withdrawVerifyTimer);
+withdrawVerifyTimer = null;
+}
 if(document.getElementById("withdrawAccountName")) withdrawAccountName.value = "";
 if(document.getElementById("withdrawVerifiedConfirm")) withdrawVerifiedConfirm.checked = false;
-if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Verify payout details before continuing.";
+if(document.getElementById("withdrawMethodContinueBtn")) withdrawMethodContinueBtn.disabled = true;
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Enter payout details to continue.";
 }
 
 function selectedWithdrawProviderCode(){
 let select = document.getElementById("withdrawProvider");
 if(!select) return "";
 let option = select.options[select.selectedIndex];
-return option ? option.dataset.code || "" : "";
+return option ? (option.value || option.dataset.code || "").trim() : "";
+}
+
+function selectedWithdrawProviderName(){
+let select = document.getElementById("withdrawProvider");
+if(!select) return "";
+let option = select.options[select.selectedIndex];
+return option ? (option.textContent || option.innerText || "").trim() : "";
 }
 
 function updateWithdrawVerificationConfirm(){
 if(!window.withdrawState || !window.withdrawState.payoutDetails) return;
 window.withdrawState.payoutVerified = !!(document.getElementById("withdrawVerifiedConfirm") && withdrawVerifiedConfirm.checked);
+if(document.getElementById("withdrawMethodContinueBtn")) withdrawMethodContinueBtn.disabled = !window.withdrawState.payoutVerified;
 }
 
-async function verifyWithdrawalPayout(){
+function sanitizeNumericInput(input, maxLength){
+if(!input) return "";
+let cleaned = String(input.value || "").replace(/\D/g, "").slice(0, maxLength);
+if(input.value !== cleaned) input.value = cleaned;
+return cleaned;
+}
+
+function bindWithdrawAutoVerification(){
+let providerEl = document.getElementById("withdrawProvider");
+let accountEl = document.getElementById("withdrawAccountNumber");
+if(providerEl && !providerEl.dataset.autoVerifyBound){
+providerEl.dataset.autoVerifyBound = "1";
+providerEl.addEventListener("change", handleWithdrawProviderChange);
+}
+if(accountEl && !accountEl.dataset.autoVerifyBound){
+accountEl.dataset.autoVerifyBound = "1";
+accountEl.setAttribute("inputmode", "numeric");
+accountEl.setAttribute("pattern", "[0-9]*");
+accountEl.setAttribute("autocomplete", "off");
+accountEl.addEventListener("input", function(){
+handleWithdrawAccountInput(accountEl);
+});
+}
+}
+
+function handleWithdrawProviderChange(){
+console.log("Bank selected:", selectedWithdrawProviderCode());
+resetWithdrawalVerification();
+scheduleWithdrawAutoVerification();
+}
+
+function handleWithdrawAccountInput(input){
+let currency = document.getElementById("withdrawCurrency") ? withdrawCurrency.value : "GHS";
+let accountNumber = sanitizeNumericInput(input, currency === "NGN" ? 10 : 15);
+console.log("Account number length:", accountNumber.length);
+resetWithdrawalVerification();
+scheduleWithdrawAutoVerification();
+}
+
+function scheduleWithdrawAutoVerification(){
+let currency = document.getElementById("withdrawCurrency") ? withdrawCurrency.value : "GHS";
+let accountNumberEl = document.getElementById("withdrawAccountNumber");
+let accountNumber = accountNumberEl ? String(accountNumberEl.value || "").replace(/\D/g, "") : "";
+if(withdrawVerifyTimer) clearTimeout(withdrawVerifyTimer);
+withdrawVerifyTimer = null;
+
+if(currency !== "NGN"){
+if(accountNumber && /^[0-9]{9,15}$/.test(accountNumber)){
+window.withdrawState = window.withdrawState || {};
+window.withdrawState.payoutDetails = {
+currency,
+paymentMethod: "MTN Mobile Money",
+network: "MTN Mobile Money",
+accountNumber,
+momoNumber: accountNumber,
+verifiedAccountName: "MTN Mobile Money",
+verifiedAt: new Date().toLocaleString(),
+verificationProvider: "Manual MoMo payout"
+};
+window.withdrawState.payoutVerified = false;
+if(document.getElementById("withdrawAccountName")) withdrawAccountName.value = "MTN Mobile Money";
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "MoMo number entered. Tick confirmation to continue.";
+}else{
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = accountNumber ? "Enter a valid MTN MoMo number." : "Enter MTN MoMo number to continue.";
+}
+return;
+}
+
+if(accountNumber.length === 0){
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Enter a 10-digit account number.";
+return;
+}
+if(accountNumber.length < 10){
+if(document.getElementById("withdrawVerificationStatus")) withdrawVerificationStatus.innerText = "Account number must be 10 digits.";
+return;
+}
+console.log("Auto verifying...");
+withdrawVerifyTimer = setTimeout(()=>verifyWithdrawalPayout({auto:true}), 700);
+}
+
+async function verifyWithdrawalPayout(options = {}){
 let currency = "GHS";
+let autoMode = !!(options && options.auto);
 try{
 let currencyEl = document.getElementById("withdrawCurrency");
 let providerEl = document.getElementById("withdrawProvider");
@@ -4666,17 +4780,44 @@ let accountNameEl = document.getElementById("withdrawAccountName");
 let confirmEl = document.getElementById("withdrawVerifiedConfirm");
 
 currency = currencyEl ? currencyEl.value : "GHS";
-let providerName = providerEl ? (providerEl.value || "").trim() : "";
+let providerName = selectedWithdrawProviderName();
 let providerCode = selectedWithdrawProviderCode();
-let accountNumber = accountNumberEl ? (accountNumberEl.value || "").trim().replace(/\s+/g,"") : "";
+let accountNumber = accountNumberEl ? sanitizeNumericInput(accountNumberEl, currency === "NGN" ? 10 : 15) : "";
 
-resetWithdrawalVerification();
-if(currency === "NGN" && !providerCode) return alert("Select bank name");
-if(!accountNumber) return alert(currency === "NGN" ? "Enter account number" : "Enter MoMo number");
-if(currency === "NGN" && !/^[0-9]{10}$/.test(accountNumber)) return alert("Enter a valid 10-digit Nigerian account number");
-if(currency === "GHS" && !/^[0-9]{9,15}$/.test(accountNumber)) return alert("Enter a valid MTN MoMo number");
+if(currency !== "NGN"){
+if(!accountNumber) return autoMode ? null : alert("Enter MoMo number");
+if(!/^[0-9]{9,15}$/.test(accountNumber)) return autoMode ? null : alert("Enter a valid MTN MoMo number");
+window.withdrawState = window.withdrawState || {};
+window.withdrawState.payoutDetails = {
+currency,
+paymentMethod: "MTN Mobile Money",
+network: "MTN Mobile Money",
+accountNumber,
+momoNumber: accountNumber,
+verifiedAccountName: "MTN Mobile Money",
+verifiedAt: new Date().toLocaleString(),
+verificationProvider: "Manual MoMo payout"
+};
+window.withdrawState.payoutVerified = false;
+if(accountNameEl) accountNameEl.value = "MTN Mobile Money";
+if(confirmEl) confirmEl.checked = false;
+if(statusEl) statusEl.innerText = "Confirm the MoMo payout number before continuing.";
+return;
+}
 
-setLoading("withdrawVerifyBtn", true, "Verifying...");
+if(!providerCode) return autoMode ? null : alert("Select bank name");
+if(!accountNumber) return autoMode ? null : alert("Enter account number");
+if(!/^[0-9]{10}$/.test(accountNumber)) return autoMode ? null : alert("Enter a valid 10-digit Nigerian account number");
+
+let requestKey = currency+"|"+providerCode+"|"+accountNumber;
+withdrawVerifyRequestKey = requestKey;
+window.withdrawState = window.withdrawState || {};
+window.withdrawState.payoutVerified = false;
+window.withdrawState.payoutDetails = null;
+if(accountNameEl) accountNameEl.value = "";
+if(confirmEl) confirmEl.checked = false;
+if(document.getElementById("withdrawMethodContinueBtn")) withdrawMethodContinueBtn.disabled = true;
+
 if(statusEl) statusEl.innerText = "Verifying account name...";
 
 let endpoint = currency === "NGN" ? "/api/verify-bank-account" : "/verify-ghs-momo";
@@ -4696,6 +4837,8 @@ network: providerName,
 momoNumber: accountNumber
 };
 let result = await callPushBackend(endpoint, verifyPayload);
+console.log("Verification response:", result);
+if(withdrawVerifyRequestKey !== requestKey) return;
 if(!result || result.ok === false){
 console.error("[ATV] Bank/MoMo verification backend error", {
 endpoint: backendUrl(endpoint),
@@ -4725,12 +4868,22 @@ if(confirmEl) confirmEl.checked = false;
 if(statusEl) statusEl.innerHTML = `<b>Verified:</b> ${escapeHtml(accountName)}. Tick confirmation to continue.`;
 showToast("Account name verified");
 }catch(error){
-resetWithdrawalVerification();
+console.error("Verification failed:", error);
+if(currency === "NGN"){
+window.withdrawState = window.withdrawState || {};
+window.withdrawState.payoutVerified = false;
+window.withdrawState.payoutDetails = null;
+if(document.getElementById("withdrawAccountName")) withdrawAccountName.value = "";
+if(document.getElementById("withdrawVerifiedConfirm")) withdrawVerifiedConfirm.checked = false;
+if(document.getElementById("withdrawMethodContinueBtn")) withdrawMethodContinueBtn.disabled = true;
+}
 appLog("Payout verification failed", error.message || error);
 let publicMessage = "Could not verify account name, please check details or try again";
 let rawMessage = String(error.message || "");
 if(rawMessage.toLowerCase().includes("missing paystack_secret_key")){
 publicMessage = "Bank verification setup is missing PAYSTACK_SECRET_KEY. Please contact support.";
+}else if(rawMessage.toLowerCase().includes("cloudflare") || rawMessage.toLowerCase().includes("browser_signature_banned") || rawMessage.toLowerCase().includes("error-1010")){
+publicMessage = "Bank verification provider blocked the backend request. Please contact support or try again later.";
 }else if(rawMessage.toLowerCase().includes("not configured")){
 publicMessage = "Could not verify account name, please check details or try again";
 }else if(rawMessage){
@@ -4738,9 +4891,8 @@ publicMessage = "Could not verify account name: "+rawMessage;
 }
 let statusEl = document.getElementById("withdrawVerificationStatus");
 if(statusEl) statusEl.innerText = publicMessage;
-alert(publicMessage);
+if(!autoMode) alert(publicMessage);
 }finally{
-setLoading("withdrawVerifyBtn", false);
 }
 }
 
@@ -6233,6 +6385,11 @@ compactDetailRow("Date", created, used, ["createdAt","submittedAt","markedPaidAt
 
 let paymentRows = [
 compactDetailRow("Method", firstOrderValue(item, ["paymentMethod","method","depositMethod","withdrawalMethod"]), used, ["paymentMethod","method","depositMethod","withdrawalMethod"]),
+compactDetailRow("Deposit Amount", item.depositAmount || item.walletCreditAmount || "", used, ["depositAmount","walletCreditAmount"]),
+compactDetailRow("Processing Fee", item.processingFee || "", used, ["processingFee"]),
+compactDetailRow("Total Amount Paid", item.totalAmountPaid || item.totalAmountPayable || "", used, ["totalAmountPaid","totalAmountPayable"]),
+compactDetailRow("Paystack Reference", item.paystackReference || "", used, ["paystackReference"]),
+compactDetailRow("Payment Status", item.paymentStatus || item.paystackStatus || "", used, ["paymentStatus","paystackStatus"]),
 compactDetailRow("Sender Name", firstOrderValue(item, ["senderName","sender_name","payerName"]), used, ["senderName","sender_name","payerName"]),
 compactDetailRow("Transaction ID", firstOrderValue(item, ["transactionId","transactionID","reference","referenceId","paymentReference"]), used, ["transactionId","transactionID","reference","referenceId","paymentReference"]),
 compactDetailRow("Settlement Account", firstOrderValue(item, ["settlementAccountName","paymentAccountName","accountName"]), used, ["settlementAccountName","paymentAccountName","accountName"]),
@@ -6312,6 +6469,15 @@ return `
 }
 
 if(collection === "deposits"){
+if(String(item.paymentProvider || "").toLowerCase() === "paystack"){
+return `
+<div class="admin-actions">
+<button onclick="detailDepositProcessing('${item.id}')">Processing</button>
+<button class="danger-btn" onclick="detailRejectDeposit('${item.id}')">Reject Deposit</button>
+</div>
+<div class="admin-queue-note">Paystack deposits are credited automatically only after Paystack confirms successful payment.</div>
+`;
+}
 return `
 <div class="admin-actions">
 <button onclick="detailDepositProcessing('${item.id}')">Processing</button>
@@ -6870,7 +7036,7 @@ html += compactOrderRow(
 item,
 collection,
 index,
-isManualDeposit ? "MTN MoMo Deposit" : walletTypeLabel(item.type),
+isManualDeposit ? "Paystack Deposit" : walletTypeLabel(item.type),
 (item.requestId || item.id)+" - "+(item.createdAt || ""),
 (item.currency || "")+" "+format(item.amount || 0),
 status,
@@ -6898,7 +7064,7 @@ html += `
 <div class="admin-order-main">
 <div class="admin-order-rank">${index + 1}</div>
 <div>
-<div class="admin-order-title">${isManualDeposit ? "MTN MoMo Deposit" : walletTypeLabel(item.type)}</div>
+<div class="admin-order-title">${isManualDeposit ? "Paystack Deposit" : walletTypeLabel(item.type)}</div>
 <div class="admin-order-sub">${item.requestId || item.id} - ${item.completedAt || item.reviewedAt || item.updatedAt || item.createdAt || ""}</div>
 </div>
 <div class="status ${isManualDeposit ? depositStatusClass(item.status) : walletStatusClass(status)}">${status}</div>
@@ -6941,7 +7107,7 @@ displayAdminWalletRequests(sortAdminQueueRows([...depositFiltered, ...filtered])
 
 async function approveManualDeposit(id){
 if(!isAdmin) return alert("Admin only");
-if(!confirm("Approve this MTN MoMo deposit and credit the user's wallet?")) return;
+if(!confirm("Approve this legacy manual deposit and credit the user's wallet? Paystack deposits credit automatically after verified payment.")) return;
 
 try{
 let depositRef = db.collection("deposits").doc(id);
@@ -6955,6 +7121,7 @@ let depositDoc = await transaction.get(depositRef);
 if(!depositDoc.exists) throw new Error("Deposit not found");
 
 let deposit = depositDoc.data();
+if(String(deposit.paymentProvider || "").toLowerCase() === "paystack") throw new Error("Paystack deposits cannot be manually approved. Wait for Paystack verification.");
 if(!["pending","payment submitted","verification","processing"].includes(String(deposit.status || "").toLowerCase())) throw new Error("This deposit has already been reviewed");
 
 let amountValue = Number(deposit.amount || 0);
@@ -6991,7 +7158,7 @@ currency: deposit.currency,
 amount: amountValue,
 converted: amountValue,
 status: "Completed",
-paymentProvider: "MTN Mobile Money",
+paymentProvider: deposit.paymentProvider || "Manual Deposit",
 paymentReference: deposit.transactionId,
 senderName: deposit.senderName,
 date: new Date().toLocaleString()
@@ -7841,7 +8008,7 @@ let html = "";
 data.forEach(thread=>{
 html += `
 <button class="admin-list-row" onclick="openSupportThread('${thread.id}')">
-<span class="admin-list-rank">ðŸ’¬</span>
+<span class="admin-list-rank">💬</span>
 <span>
 <b>${thread.customerEmail || thread.customerId || "Customer"}</b>
 <small>${thread.id} - ${thread.updatedAt || ""}</small>
@@ -8378,7 +8545,7 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260607paystackdebug1")
+navigator.serviceWorker.register("./sw.js?v=20260608paystackonly1")
 .then(registration => registration.update())
 .catch(() => {});
 }

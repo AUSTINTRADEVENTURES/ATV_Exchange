@@ -1,11 +1,11 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
 <title>ATV Exchange - Add Payment Method</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="./styles.css?v=20260607paystackdebug1">
+<link rel="stylesheet" href="./styles.css?v=20260608paystackonly1">
 </head>
 <body>
 <div class="app page-shell">
@@ -14,7 +14,7 @@
 <div><span class="admin-kicker">Wallet</span><h2>Add Payment Method</h2></div>
 </div>
 <section class="card">
-<select id="preferredPaymentMethod">
+<select id="preferredPaymentMethod" onchange="sanitizePaymentAccountNumber(document.getElementById('paymentAccountNumber'))">
 <option value="">Select Payment Method</option>
 <option value="mobile-money">Mobile Money</option>
 <option value="bank-transfer">Bank Transfer</option>
@@ -22,7 +22,7 @@
 </select>
 <input id="paymentProvider" placeholder="Provider or Bank Name">
 <input id="paymentAccountName" placeholder="Account Name">
-<input id="paymentAccountNumber" placeholder="Account / Wallet Number">
+<input id="paymentAccountNumber" inputmode="numeric" pattern="[0-9]*" maxlength="15" autocomplete="off" placeholder="Account / Wallet Number" oninput="sanitizePaymentAccountNumber(this)">
 <button onclick="savePaymentMethod()">Save Payment Method</button>
 <div id="paymentMethodStatus" class="help"></div>
 </section>
@@ -31,7 +31,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="./app.js?v=20260607paystackdebug1"></script>
+<script src="./app.js?v=20260608paystackonly1"></script>
 </body>
 </html>
 
