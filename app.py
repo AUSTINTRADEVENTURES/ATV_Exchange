@@ -17,7 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 
 app = Flask(__name__)
-APP_BUILD = "20260613platformapi1"
+APP_BUILD = "20260613nomba1"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
 PUBLIC_FILES = {
@@ -903,6 +903,15 @@ def payout_verification_diagnostics():
             "configured": bool(os.environ.get("GHANA_MOMO_VERIFY_URL", "").strip()),
             "hasToken": bool(os.environ.get("GHANA_MOMO_VERIFY_TOKEN", "").strip()),
         },
+        "nomba": {
+            "configured": bool(nomba_configured()),
+            "baseUrl": nomba_base_url(),
+            "tokenEndpoint": "/v1/auth/token/issue",
+            "verifyBankPath": nomba_verify_bank_path(),
+            "virtualAccountPath": nomba_virtual_account_path(),
+            "payoutPath": nomba_payout_path(),
+            "transactionStatusPath": nomba_transaction_status_path(),
+        },
         "allowedOrigins": ALLOWED_ORIGINS,
     })
 
@@ -963,6 +972,9 @@ def verify_ngn_bank():
             "accountNumberLast4": account_number[-4:],
         })
         return json_error("Bank code must be numeric", 400)
+
+    if nomba_configured():
+        return nomba_verify_bank_account_response(account_number, bank_code, bank_name, decoded.get("uid", ""))
 
     paystack_secret = os.environ.get("PAYSTACK_SECRET_KEY", "").strip()
     if not paystack_secret:
@@ -1956,6 +1968,373 @@ def verify_platform_api(required_permission):
     return doc.id, data
 
 
+def nomba_base_url():
+    return os.environ.get("NOMBA_BASE_URL", "https://api.nomba.com").rstrip("/")
+
+
+def nomba_client_id():
+    return os.environ.get("NOMBA_CLIENT_ID", "").strip()
+
+
+def nomba_client_secret():
+    return os.environ.get("NOMBA_CLIENT_SECRET", "").strip()
+
+
+def nomba_account_id():
+    return os.environ.get("NOMBA_ACCOUNT_ID", "").strip()
+
+
+def nomba_configured():
+    return bool(nomba_client_id() and nomba_client_secret() and nomba_account_id())
+
+
+def nomba_verify_bank_path():
+    return os.environ.get("NOMBA_VERIFY_BANK_PATH", "/v1/transfers/bank/lookup").strip()
+
+
+def nomba_virtual_account_path():
+    return os.environ.get("NOMBA_VIRTUAL_ACCOUNT_PATH", "/v1/accounts/virtual").strip()
+
+
+def nomba_payout_path():
+    return os.environ.get("NOMBA_PAYOUT_PATH", "/v1/transfers/bank").strip()
+
+
+def nomba_transaction_status_path():
+    return os.environ.get("NOMBA_TRANSACTION_STATUS_PATH", "/v1/transactions/{id}").strip()
+
+
+def nomba_secrets_collection():
+    return db.collection("backendSecrets")
+
+
+def nomba_token_ref():
+    return nomba_secrets_collection().document("nombaAuth")
+
+
+def nomba_logs_collection():
+    return db.collection("nombaApiLogs")
+
+
+def nomba_log(event, status, data=None):
+    payload = {
+        "event": event,
+        "status": status,
+        "createdAt": api_now_text(),
+        "path": request.path,
+        "method": request.method,
+        "ip": api_client_ip(),
+        "data": data or {},
+    }
+    try:
+        nomba_logs_collection().document().set(payload)
+    except Exception as exc:
+        backend_log("nomba.log.failed", {"error": str(exc), "event": event})
+    backend_log("nomba." + event, payload)
+
+
+def nomba_url(path):
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    return nomba_base_url() + "/" + path.lstrip("/")
+
+
+def nomba_extract_token(data, key):
+    if not isinstance(data, dict):
+        return ""
+    candidates = [
+        data.get(key),
+        data.get(key.replace("_", "")),
+        data.get("accessToken" if key == "access_token" else "refreshToken"),
+    ]
+    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
+    candidates.extend([
+        nested.get(key),
+        nested.get(key.replace("_", "")),
+        nested.get("accessToken" if key == "access_token" else "refreshToken"),
+    ])
+    for value in candidates:
+        if value:
+            return str(value)
+    return ""
+
+
+def nomba_token_expiry_ms(data):
+    now_ms = int(time.time() * 1000)
+    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
+    expires_in = data.get("expires_in") or data.get("expiresIn") or nested.get("expires_in") or nested.get("expiresIn")
+    try:
+        return now_ms + (int(expires_in) * 1000) - 60000
+    except Exception:
+        return now_ms + (50 * 60 * 1000)
+
+
+def nomba_issue_token(force=False):
+    if not nomba_configured():
+        raise ValueError("Nomba credentials are not configured")
+    ref = nomba_token_ref()
+    existing = ref.get()
+    now_ms = int(time.time() * 1000)
+    if not force and existing.exists:
+        saved = existing.to_dict() or {}
+        expires_at = int(saved.get("expiresAtMs") or 0)
+        encrypted_access = saved.get("accessTokenEncrypted")
+        if encrypted_access and expires_at > now_ms:
+            return {
+                "access_token": api_decrypt_secret(encrypted_access),
+                "refresh_token": api_decrypt_secret(saved.get("refreshTokenEncrypted", "")) if saved.get("refreshTokenEncrypted") else "",
+                "cached": True,
+                "expiresAtMs": expires_at,
+            }
+
+    body = {
+        "grant_type": "client_credentials",
+        "client_id": nomba_client_id(),
+        "client_secret": nomba_client_secret(),
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "accountId": nomba_account_id(),
+    }
+    result = http_json("POST", nomba_url("/v1/auth/token/issue"), headers=headers, body=body, timeout=25)
+    access_token = nomba_extract_token(result, "access_token")
+    refresh_token = nomba_extract_token(result, "refresh_token")
+    if not access_token:
+        nomba_log("token_issue_failed", "failed", {"response": result})
+        raise ValueError("Nomba did not return an access_token")
+    expires_at = nomba_token_expiry_ms(result)
+    ref.set({
+        "provider": "nomba",
+        "accessTokenEncrypted": api_encrypt_secret(access_token),
+        "refreshTokenEncrypted": api_encrypt_secret(refresh_token) if refresh_token else "",
+        "expiresAtMs": expires_at,
+        "updatedAt": api_now_text(),
+        "accountId": nomba_account_id(),
+        "rawTokenMetadata": {
+            "hasRefreshToken": bool(refresh_token),
+            "expiresAtMs": expires_at,
+        },
+    }, merge=True)
+    nomba_log("token_issued", "success", {"expiresAtMs": expires_at, "hasRefreshToken": bool(refresh_token)})
+    return {"access_token": access_token, "refresh_token": refresh_token, "cached": False, "expiresAtMs": expires_at}
+
+
+def nomba_headers():
+    token = nomba_issue_token().get("access_token")
+    return {
+        "Authorization": "Bearer " + token,
+        "accountId": nomba_account_id(),
+        "Content-Type": "application/json",
+    }
+
+
+def nomba_request(method, path, body=None, event="request"):
+    headers = nomba_headers()
+    url = nomba_url(path)
+    nomba_log(event + "_request", "started", {"url": url, "body": body})
+    try:
+        result = http_json(method, url, headers=headers, body=body, timeout=30)
+        nomba_log(event + "_response", "success", {"response": result})
+        return result
+    except ValueError as exc:
+        nomba_log(event + "_response", "failed", {"error": str(exc)})
+        raise
+
+
+def nomba_verified_name(data):
+    name = verified_name_from_response(data)
+    if name:
+        return name
+    nested = data.get("data") if isinstance(data, dict) and isinstance(data.get("data"), dict) else {}
+    for key in ["account_name", "accountName", "account_name_enquiry", "accountNameEnquiry", "beneficiaryName"]:
+        if nested.get(key):
+            return str(nested.get(key)).strip()
+    return ""
+
+
+def nomba_verify_bank_account_response(account_number, bank_code, bank_name="", user_id=""):
+    body = {
+        "accountNumber": account_number,
+        "account_number": account_number,
+        "bankCode": bank_code,
+        "bank_code": bank_code,
+        "bankName": bank_name,
+    }
+    try:
+        result = nomba_request("POST", nomba_verify_bank_path(), body=body, event="verify_bank")
+        account_name = nomba_verified_name(result)
+        if not account_name:
+            message = result.get("message") or result.get("error") or "Nomba could not verify account name"
+            return jsonify({"ok": False, "message": message, "provider": "nomba", "providerBody": result}), 400
+        return jsonify({
+            "ok": True,
+            "provider": "nomba",
+            "bankName": bank_name,
+            "bankCode": bank_code,
+            "bank_code": bank_code,
+            "accountNumber": account_number,
+            "account_number": account_number,
+            "accountName": account_name,
+            "verifiedAccountName": account_name,
+            "userId": user_id,
+            "providerBody": result,
+        })
+    except ValueError as exc:
+        return jsonify({"ok": False, "message": str(exc), "provider": "nomba"}), 400
+
+
+@app.get("/diagnostics/nomba")
+def nomba_diagnostics():
+    token_doc = nomba_token_ref().get()
+    token_data = token_doc.to_dict() if token_doc.exists else {}
+    return jsonify({
+        "ok": True,
+        "service": "ATV Exchange Nomba Integration",
+        "configured": nomba_configured(),
+        "baseUrl": nomba_base_url(),
+        "accountIdConfigured": bool(nomba_account_id()),
+        "clientIdConfigured": bool(nomba_client_id()),
+        "clientSecretConfigured": bool(nomba_client_secret()),
+        "tokenCached": bool(token_data.get("accessTokenEncrypted")),
+        "tokenExpiresAtMs": token_data.get("expiresAtMs", ""),
+        "paths": {
+            "token": "/v1/auth/token/issue",
+            "verifyBank": nomba_verify_bank_path(),
+            "virtualAccount": nomba_virtual_account_path(),
+            "payout": nomba_payout_path(),
+            "transactionStatus": nomba_transaction_status_path(),
+        },
+    })
+
+
+@app.post("/api/nomba/token/issue")
+def nomba_token_issue_admin():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    if not is_admin(decoded):
+        return json_error("Admin access required", 403)
+    try:
+        token = nomba_issue_token(force=True)
+        return jsonify({
+            "ok": True,
+            "cached": token.get("cached", False),
+            "expiresAtMs": token.get("expiresAtMs"),
+            "hasAccessToken": bool(token.get("access_token")),
+            "hasRefreshToken": bool(token.get("refresh_token")),
+        })
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+
+
+@app.post("/api/nomba/verify-bank-account")
+def nomba_verify_bank_account_route():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    data = request.get_json(silent=True) or {}
+    account_number = str(data.get("account_number") or data.get("accountNumber") or "").strip().replace(" ", "")
+    bank_code = str(data.get("bank_code") or data.get("bankCode") or data.get("account_bank") or "").strip()
+    bank_name = str(data.get("bankName") or data.get("bank_name") or NIGERIAN_BANK_CODES.get(bank_code, "")).strip()
+    if not account_number.isdigit() or len(account_number) != 10:
+        return json_error("Enter a valid 10-digit Nigerian account number")
+    if not bank_code.isdigit():
+        return json_error("Bank code must be numeric")
+    return nomba_verify_bank_account_response(account_number, bank_code, bank_name, decoded.get("uid", ""))
+
+
+@app.post("/api/nomba/virtual-accounts/create")
+def nomba_create_virtual_account():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    data = request.get_json(silent=True) or {}
+    body = {
+        "accountName": str(data.get("accountName") or data.get("customerName") or decoded.get("email") or "ATV Customer"),
+        "customerEmail": str(data.get("customerEmail") or decoded.get("email") or ""),
+        "customerId": str(data.get("customerId") or decoded.get("uid") or ""),
+        "currency": "NGN",
+        "metadata": data.get("metadata") or {},
+    }
+    try:
+        result = nomba_request("POST", nomba_virtual_account_path(), body=body, event="virtual_account")
+        return jsonify({"ok": True, "provider": "nomba", "virtualAccount": result})
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+
+
+@app.post("/api/nomba/payouts/create")
+def nomba_create_payout():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    if not is_admin(decoded):
+        return json_error("Admin access required", 403)
+    data = request.get_json(silent=True) or {}
+    body = {
+        "amount": data.get("amount"),
+        "accountNumber": data.get("accountNumber") or data.get("account_number"),
+        "bankCode": data.get("bankCode") or data.get("bank_code"),
+        "accountName": data.get("accountName") or data.get("verifiedAccountName"),
+        "currency": "NGN",
+        "reference": data.get("reference") or ("ATV-NOMBA-PAYOUT-" + str(int(time.time() * 1000))),
+        "narration": data.get("narration") or "ATV Exchange payout",
+        "metadata": data.get("metadata") or {},
+    }
+    try:
+        result = nomba_request("POST", nomba_payout_path(), body=body, event="payout")
+        return jsonify({"ok": True, "provider": "nomba", "payout": result})
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+
+
+@app.get("/api/nomba/transactions/<transaction_id>/status")
+def nomba_transaction_status(transaction_id):
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    if not is_admin(decoded):
+        return json_error("Admin access required", 403)
+    path = nomba_transaction_status_path().replace("{id}", urlparse.quote(transaction_id))
+    try:
+        result = nomba_request("GET", path, event="transaction_status")
+        return jsonify({"ok": True, "provider": "nomba", "transaction": result})
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+
+
+@app.post("/api/nomba/webhooks/deposit")
+def nomba_deposit_webhook():
+    data = request.get_json(silent=True) or {}
+    nomba_log("deposit_webhook", "received", {"payload": data, "headers": dict(request.headers)})
+    db.collection("nombaWebhooks").document().set({
+        "type": "deposit",
+        "payload": data,
+        "headers": {key: value for key, value in request.headers.items() if key.lower() not in {"authorization"}},
+        "createdAt": api_now_text(),
+        "ip": api_client_ip(),
+    })
+    return jsonify({"ok": True, "received": True})
+
+
+@app.get("/api/admin/nomba-logs")
+def nomba_admin_logs():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    if not is_admin(decoded):
+        return json_error("Admin access required", 403)
+    docs = nomba_logs_collection().order_by("createdAt", direction=firestore.Query.DESCENDING).limit(50).stream()
+    logs = [{"id": doc.id, **(doc.to_dict() or {})} for doc in docs]
+    return jsonify({"ok": True, "logs": logs})
+
+
 @app.get("/api/admin/api-keys")
 def list_platform_api_keys():
     try:
@@ -2136,5 +2515,6 @@ def public_file(filename):
             clean_name = "styles.css"
         return send_from_directory(BASE_DIR, clean_name)
     abort(404)
+
 
 

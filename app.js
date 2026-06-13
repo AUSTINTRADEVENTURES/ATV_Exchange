@@ -146,7 +146,7 @@ let walletActionBusy = false;
 let withdrawVerifyTimer = null;
 let withdrawVerifyRequestKey = "";
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260613platformapi1";
+const appAssetVersion = "20260613nomba1";
 let authChecked = false;
 window.atvAuthResolved = false;
 
@@ -1062,7 +1062,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260613platformapi1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260613nomba1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1148,7 +1148,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260613platformapi1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260613nomba1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -6619,6 +6619,7 @@ box.innerHTML = '<div class="admin-empty">Could not load order details: '+error.
 let apiManagementState = {
 keys: [],
 logs: [],
+nombaLogs: [],
 editingId: "",
 lastCreated: null
 };
@@ -6648,10 +6649,12 @@ if(!list) return;
 try{
 let keysResult = await callApiAdminBackend("/api/admin/api-keys", null, "GET");
 let logsResult = await callApiAdminBackend("/api/admin/api-logs", null, "GET");
+let nombaLogsResult = await callApiAdminBackend("/api/admin/nomba-logs", null, "GET");
 apiManagementState.keys = Array.isArray(keysResult.keys) ? keysResult.keys : [];
 apiManagementState.logs = Array.isArray(logsResult.logs) ? logsResult.logs : [];
-renderApiManagementDashboard(apiManagementState.keys, apiManagementState.logs);
-renderApiConnectionList(apiManagementState.keys, apiManagementState.logs);
+apiManagementState.nombaLogs = Array.isArray(nombaLogsResult.logs) ? nombaLogsResult.logs : [];
+renderApiManagementDashboard(apiManagementState.keys, apiManagementState.logs.concat(apiManagementState.nombaLogs));
+renderApiConnectionList(apiManagementState.keys, apiManagementState.logs.concat(apiManagementState.nombaLogs));
 }catch(error){
 list.innerHTML = '<div class="empty-state">Could not load API keys: '+escapeHtml(error.message)+'</div>';
 }
@@ -6708,8 +6711,8 @@ return;
 
 let recentLogs = logs.slice(0, 8).map(log=>`
 <div class="api-log-row">
-<span>${escapeHtml(log.method || "")} ${escapeHtml(log.path || "")}</span>
-<b>${escapeHtml(log.result || "")}</b>
+<span>${escapeHtml(log.event || "")} ${escapeHtml(log.method || "")} ${escapeHtml(log.path || "")}</span>
+<b>${escapeHtml(log.result || log.status || "")}</b>
 <small>${escapeHtml(log.ip || "")} - ${escapeHtml(log.createdAt || "")}</small>
 </div>`).join("");
 
@@ -8809,10 +8812,11 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260613platformapi1")
+navigator.serviceWorker.register("./sw.js?v=20260613nomba1")
 .then(registration => registration.update())
 .catch(() => {});
 }
+
 
 
 
