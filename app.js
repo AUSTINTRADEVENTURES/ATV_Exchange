@@ -1,4 +1,4 @@
-// FIREBASE CONFIG
+﻿// FIREBASE CONFIG
 const firebaseConfig = {
 apiKey: "AIzaSyBQiE6s-oBHwmFcBe_7ghcYb6hEZytTFXw",
 authDomain: "atvexchange.firebaseapp.com",
@@ -146,7 +146,7 @@ let walletActionBusy = false;
 let withdrawVerifyTimer = null;
 let withdrawVerifyRequestKey = "";
 let notificationBadgeUnsubscribes = [];
-const appAssetVersion = "20260608ghspaystack1";
+const appAssetVersion = "20260613platformapi1";
 let authChecked = false;
 window.atvAuthResolved = false;
 
@@ -385,6 +385,7 @@ if(page === "profit.html") await requireAdmin(loadProfitDashboard);
 if(page === "customers.html") await requireAdmin(loadCustomersPage);
 if(page === "kyc-admin.html") await requireAdmin(loadKycReviewPage);
 if(page === "rates.html") await requireAdmin(loadRatesPage);
+if(page === "api-management.html") await requireAdmin(loadApiManagementPage);
 if(page === "announcements.html") await requireAdmin(loadAnnouncementsPage);
 if(page === "support-admin.html") await requireAdmin(loadSupportAdminPage);
 if(page === "support-chat-admin.html") await requireAdmin(loadSupportAdminChatPage);
@@ -437,7 +438,7 @@ button.setAttribute("aria-label", showing ? "Show password" : "Hide password");
 function ensureSubPageBackButton(page){
 let noBackPages = ["index.html","login.html","signup.html","exchange.html","dashboard.html"];
 if(noBackPages.includes(page) || document.querySelector(".back-btn")) return;
-let adminPages = ["profit.html","rates.html","customers.html","announcements.html","deposit-orders.html","convert-orders.html","swap-orders.html","withdrawal-orders.html","utility-bill-approvals.html","transaction-history.html"];
+let adminPages = ["profit.html","rates.html","api-management.html","customers.html","announcements.html","deposit-orders.html","convert-orders.html","swap-orders.html","withdrawal-orders.html","utility-bill-approvals.html","transaction-history.html"];
 let backTarget = page === "order-detail.html" ? (isAdmin ? "dashboard.html" : "orders.html") : page.includes("admin") || adminPages.includes(page) ? "dashboard.html" : "exchange.html";
 let wrapper = document.createElement("div");
 wrapper.className = "auto-back-wrap";
@@ -1061,7 +1062,7 @@ if(Notification.permission !== "granted") return;
 try{
 let messaging = await getMessagingInstance();
 if(!messaging) return;
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260608ghspaystack1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260613platformapi1");
 await registration.update();
 let token = await messaging.getToken({
 vapidKey: fcmVapidKey,
@@ -1147,7 +1148,7 @@ return;
 }
 
 setPushStatus("Registering notification service worker...");
-let registration = await navigator.serviceWorker.register("./sw.js?v=20260608ghspaystack1");
+let registration = await navigator.serviceWorker.register("./sw.js?v=20260613platformapi1");
 await registration.update();
 
 setPushStatus("Creating this device notification token...");
@@ -6615,6 +6616,265 @@ box.innerHTML = '<div class="admin-empty">Could not load order details: '+error.
 }
 }
 
+let apiManagementState = {
+keys: [],
+logs: [],
+editingId: "",
+lastCreated: null
+};
+
+function apiStatusClass(status){
+let normalized = String(status || "Disabled").toLowerCase();
+if(normalized.includes("active")) return "connected";
+if(normalized.includes("disabled")) return "expired";
+if(normalized.includes("failed")) return "failed";
+return "pending";
+}
+
+function apiStatusLabel(status){
+return status || "Pending";
+}
+
+function maskApiKey(value){
+let text = String(value || "").trim();
+if(!text) return "Not saved";
+if(text.length <= 8) return text.slice(0, 2)+"****"+text.slice(-2);
+return text.slice(0, 5)+"****"+text.slice(-4);
+}
+
+async function loadApiManagementPage(){
+let list = document.getElementById("apiConnectionList");
+if(!list) return;
+try{
+let keysResult = await callApiAdminBackend("/api/admin/api-keys", null, "GET");
+let logsResult = await callApiAdminBackend("/api/admin/api-logs", null, "GET");
+apiManagementState.keys = Array.isArray(keysResult.keys) ? keysResult.keys : [];
+apiManagementState.logs = Array.isArray(logsResult.logs) ? logsResult.logs : [];
+renderApiManagementDashboard(apiManagementState.keys, apiManagementState.logs);
+renderApiConnectionList(apiManagementState.keys, apiManagementState.logs);
+}catch(error){
+list.innerHTML = '<div class="empty-state">Could not load API keys: '+escapeHtml(error.message)+'</div>';
+}
+}
+
+async function callApiAdminBackend(endpoint, payload, method){
+let idToken = await getCurrentIdToken();
+let response = await fetch(backendUrl(endpoint), {
+method: method || "POST",
+headers:{
+"Content-Type":"application/json",
+"Authorization":"Bearer "+idToken
+},
+body: method === "GET" ? undefined : JSON.stringify(payload || {})
+});
+let data = {};
+try{ data = await response.json(); }catch(error){ data = {}; }
+if(!response.ok || data.ok === false){
+throw new Error(data.message || data.error || ("Backend request failed HTTP "+response.status));
+}
+return data;
+}
+
+function renderApiManagementDashboard(keys, logs){
+let stats = document.getElementById("apiDashboardStats");
+let hero = document.getElementById("apiHeroHealth");
+if(!stats) return;
+let total = keys.length;
+let active = keys.filter(item=>String(item.status || "").toLowerCase() === "active").length;
+let disabled = keys.filter(item=>String(item.status || "").toLowerCase() === "disabled").length;
+let lastUsed = keys.map(item=>item.lastUsedAt || "").filter(Boolean).sort().pop() || "Not used yet";
+let deniedLogs = logs.filter(item=>String(item.result || "").toLowerCase().includes("denied")).length;
+let health = deniedLogs ? "Review Logs" : active ? "Healthy" : total ? "Disabled" : "No APIs";
+
+stats.innerHTML = `
+<div class="api-stat-card"><span>Total APIs</span><b>${total}</b><small>${total === 1 ? "credential created" : "credentials created"}</small></div>
+<div class="api-stat-card"><span>Active Partners</span><b>${active}</b><small>${disabled} disabled</small></div>
+<div class="api-stat-card"><span>Last Used</span><b>${escapeHtml(lastUsed)}</b><small>Latest partner API call</small></div>
+<div class="api-stat-card"><span>API Health</span><b>${escapeHtml(health)}</b><small>${deniedLogs} denied request${deniedLogs === 1 ? "" : "s"}</small></div>`;
+
+if(hero){
+hero.className = "api-health-pill "+apiStatusClass(active ? "Active" : "Disabled");
+hero.innerText = health;
+}
+}
+
+function renderApiConnectionList(keys, logs){
+let list = document.getElementById("apiConnectionList");
+if(!list) return;
+if(!keys.length){
+list.innerHTML = '<div class="empty-state">No partner API key created yet. Create the first ATV Exchange API credential from the form.</div>';
+return;
+}
+
+let recentLogs = logs.slice(0, 8).map(log=>`
+<div class="api-log-row">
+<span>${escapeHtml(log.method || "")} ${escapeHtml(log.path || "")}</span>
+<b>${escapeHtml(log.result || "")}</b>
+<small>${escapeHtml(log.ip || "")} - ${escapeHtml(log.createdAt || "")}</small>
+</div>`).join("");
+
+list.innerHTML = keys
+.slice()
+.sort((a,b)=>String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+.map(item=>{
+let statusClass = apiStatusClass(item.status);
+return `
+<article class="api-connection-card">
+<div class="api-card-headline">
+<div class="api-logo" style="--api-accent:#16C784">API</div>
+<div>
+<strong>${escapeHtml(item.name || "Unnamed API")}</strong>
+<span>${escapeHtml(item.apiKeyPreview || "Masked API key")}</span>
+</div>
+<em class="api-status ${statusClass}">${escapeHtml(apiStatusLabel(item.status))}</em>
+</div>
+<div class="api-card-meta">
+<span><b>Permissions</b>${escapeHtml((item.permissions || []).join(", ") || "None")}</span>
+<span><b>IP Whitelist</b>${escapeHtml((item.allowedIps || []).join(", ") || "Not restricted")}</span>
+<span><b>Date Created</b>${escapeHtml(item.createdAt || "--")}</span>
+<span><b>Last Used</b>${escapeHtml(item.lastUsedAt || "Not used")}</span>
+</div>
+<p>${escapeHtml(item.notes || "No notes added.")}</p>
+<div class="api-card-actions">
+<button type="button" class="secondary-link" onclick="editApiConnection('${escapeHtml(item.id)}')">Edit</button>
+<button type="button" class="secondary-link" onclick="toggleApiConnectionStatus('${escapeHtml(item.id)}','${String(item.status).toLowerCase() === "active" ? "Disabled" : "Active"}')">${String(item.status).toLowerCase() === "active" ? "Disable" : "Enable"}</button>
+<button type="button" class="danger-link" onclick="deleteApiConnection('${escapeHtml(item.id)}')">Delete</button>
+</div>
+</article>`;
+}).join("") + `
+<div class="api-panel api-log-panel">
+<div class="admin-card-head"><div><span class="admin-kicker">Recent API Logs</span><h2>Request activity</h2></div></div>
+${recentLogs || '<div class="empty-state">No API request logs yet.</div>'}
+</div>`;
+}
+
+function toggleApiSecretField(fieldId, button){
+let field = document.getElementById(fieldId);
+if(!field) return;
+let show = field.type === "password";
+field.type = show ? "text" : "password";
+if(button) button.innerText = show ? "Hide" : "Show";
+}
+
+function getApiFormData(){
+let apiName = (document.getElementById("apiName") || {}).value || "";
+let status = (document.getElementById("apiStatus") || {}).value || "Active";
+let ipText = (document.getElementById("apiIpWhitelist") || {}).value || "";
+let notes = (document.getElementById("apiNotes") || {}).value || "";
+let permissions = Array.from(document.querySelectorAll(".api-permission:checked")).map(input=>input.value);
+let allowedIps = ipText.split(/[\n,]+/).map(ip=>ip.trim()).filter(Boolean);
+return {
+apiName: apiName.trim(),
+status: status.trim(),
+allowedIps,
+permissions,
+notes: notes.trim()
+};
+}
+
+function setApiTestResult(result){
+let box = document.getElementById("apiTestResult");
+if(!box) return;
+let statusClass = apiStatusClass(result.status);
+box.className = "api-test-result "+statusClass;
+box.innerHTML = `
+<b>${escapeHtml(result.title || "Connection response")}</b>
+<span>${escapeHtml(result.message || "")}</span>
+<small>${escapeHtml(result.detail || "")}</small>`;
+}
+
+async function saveApiConnection(){
+if(!isAdmin){
+alert("Admin only");
+return;
+}
+let form = getApiFormData();
+if(!form.apiName){
+alert("API name is required.");
+return;
+}
+if(!form.permissions.length){
+alert("Select at least one API permission.");
+return;
+}
+let endpoint = apiManagementState.editingId ? "/api/admin/api-keys/"+encodeURIComponent(apiManagementState.editingId) : "/api/admin/api-keys/create";
+let result = await callApiAdminBackend(endpoint, {
+name: form.apiName,
+status: form.status,
+allowedIps: form.allowedIps,
+permissions: form.permissions,
+notes: form.notes
+}, apiManagementState.editingId ? "PATCH" : "POST");
+
+if(result.secretKey || result.webhookSecret){
+let secretHtml = `
+<b>Copy these credentials now</b>
+<span>Secret Key and Webhook Secret will not be displayed again.</span>
+<small>API Key: ${escapeHtml(result.apiKey || "")}</small>
+<small>Secret Key: ${escapeHtml(result.secretKey || "")}</small>
+<small>Webhook Secret: ${escapeHtml(result.webhookSecret || "")}</small>`;
+let box = document.getElementById("apiTestResult");
+if(box){
+box.className = "api-test-result connected";
+box.innerHTML = secretHtml;
+}
+}else{
+setApiTestResult({status:"Active", title:"API updated", message:"Partner API settings were saved.", detail:"Secrets remain hidden."});
+}
+
+showToast(apiManagementState.editingId ? "API key updated" : "API key created");
+["apiName","apiIpWhitelist","apiNotes"].forEach(id=>{
+let el = document.getElementById(id);
+if(el) el.value = "";
+});
+document.querySelectorAll(".api-permission").forEach(input=>input.checked = false);
+apiManagementState.editingId = "";
+loadApiManagementPage();
+}
+
+function resetApiManagementForm(){
+["apiName","apiIpWhitelist","apiNotes"].forEach(id=>{
+let el = document.getElementById(id);
+if(el) el.value = "";
+});
+let status = document.getElementById("apiStatus");
+if(status) status.value = "Active";
+document.querySelectorAll(".api-permission").forEach(input=>input.checked = false);
+apiManagementState.editingId = "";
+setApiTestResult({status:"Pending", title:"Generated credentials", message:"New API secrets will appear here once. Copy them before leaving this page."});
+}
+
+function editApiConnection(id){
+let item = apiManagementState.keys.find(record=>record.id === id);
+if(!item) return;
+apiManagementState.editingId = id;
+let name = document.getElementById("apiName");
+let status = document.getElementById("apiStatus");
+let ips = document.getElementById("apiIpWhitelist");
+let notes = document.getElementById("apiNotes");
+if(name) name.value = item.name || "";
+if(status) status.value = item.status || "Active";
+if(ips) ips.value = (item.allowedIps || []).join("\n");
+if(notes) notes.value = item.notes || "";
+document.querySelectorAll(".api-permission").forEach(input=>input.checked = (item.permissions || []).includes(input.value));
+setApiTestResult({status:item.status || "Pending", title:"Editing API key", message:"Secret Key and Webhook Secret are hidden permanently after creation.", detail:item.apiKeyPreview || ""});
+window.scrollTo({top:0, behavior:"smooth"});
+}
+
+async function deleteApiConnection(id){
+if(!isAdmin) return alert("Admin only");
+if(!confirm("Delete this partner API key?")) return;
+await callApiAdminBackend("/api/admin/api-keys/"+encodeURIComponent(id), {}, "DELETE");
+showToast("API key deleted");
+loadApiManagementPage();
+}
+
+async function toggleApiConnectionStatus(id, status){
+await callApiAdminBackend("/api/admin/api-keys/"+encodeURIComponent(id), {status}, "PATCH");
+showToast("API key "+status.toLowerCase());
+loadApiManagementPage();
+}
+
 function loadDashboard(){
 if(document.getElementById("adminPendingCounters")) setupAdminPendingCounters();
 }
@@ -8012,7 +8272,7 @@ let html = "";
 data.forEach(thread=>{
 html += `
 <button class="admin-list-row" onclick="openSupportThread('${thread.id}')">
-<span class="admin-list-rank">💬</span>
+<span class="admin-list-rank">ðŸ’¬</span>
 <span>
 <b>${thread.customerEmail || thread.customerId || "Customer"}</b>
 <small>${thread.id} - ${thread.updatedAt || ""}</small>
@@ -8549,10 +8809,12 @@ alert("Test push failed: "+error.message);
 }
 
 if ("serviceWorker" in navigator) {
-navigator.serviceWorker.register("./sw.js?v=20260608ghspaystack1")
+navigator.serviceWorker.register("./sw.js?v=20260613platformapi1")
 .then(registration => registration.update())
 .catch(() => {});
 }
+
+
 
 
 

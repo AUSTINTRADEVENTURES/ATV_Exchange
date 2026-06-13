@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory, abort
+﻿from flask import Flask, jsonify, request, send_from_directory, abort
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import auth, credentials, firestore, messaging
@@ -8,13 +8,16 @@ import json
 import traceback
 import hmac
 import hashlib
+import base64
+import secrets
+import uuid
 from urllib import request as urlrequest
 from urllib import parse as urlparse
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 
 app = Flask(__name__)
-APP_BUILD = "20260608ghspaystack1"
+APP_BUILD = "20260613platformapi1"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_EXTENSIONS = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".txt"}
 PUBLIC_FILES = {
@@ -50,6 +53,7 @@ PUBLIC_FILES = {
     "customers.html",
     "profit.html",
     "rates.html",
+    "api-management.html",
     "announcements.html",
     "kyc-admin.html",
     "support.html",
@@ -1807,6 +1811,323 @@ def internal_transfer():
         return json_error("Transfer failed: " + str(exc), 500)
 
 
+def api_master_key():
+    key = os.environ.get("ATV_API_MASTER_KEY", "").strip()
+    if not key:
+        key = os.environ.get("FLW_SECRET_KEY", "") or os.environ.get("PAYSTACK_SECRET_KEY", "") or SERVICE_ACCOUNT_PATH
+    return key.encode("utf-8")
+
+
+def api_now_text():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def api_secret_hash(secret):
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def api_encrypt_secret(secret):
+    raw = secret.encode("utf-8")
+    key = hashlib.sha256(api_master_key()).digest()
+    encrypted = bytes(raw[i] ^ key[i % len(key)] for i in range(len(raw)))
+    return base64.urlsafe_b64encode(encrypted).decode("utf-8")
+
+
+def api_decrypt_secret(value):
+    encrypted = base64.urlsafe_b64decode(value.encode("utf-8"))
+    key = hashlib.sha256(api_master_key()).digest()
+    raw = bytes(encrypted[i] ^ key[i % len(key)] for i in range(len(encrypted)))
+    return raw.decode("utf-8")
+
+
+def api_key_preview(api_key):
+    if not api_key:
+        return ""
+    return api_key[:8] + "..." + api_key[-6:]
+
+
+def api_client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or ""
+
+
+def normalize_api_permissions(values):
+    allowed = {"read_transactions", "create_payout", "confirm_deposit", "check_order_status", "webhook_access"}
+    return [item for item in values if item in allowed]
+
+
+def normalize_ip_list(values):
+    if isinstance(values, str):
+        values = values.replace(",", "\n").splitlines()
+    if not isinstance(values, list):
+        values = []
+    clean = []
+    for value in values:
+        ip = str(value).strip()
+        if ip and ip not in clean:
+            clean.append(ip)
+    return clean
+
+
+def api_keys_collection():
+    return db.collection("platformApiKeys")
+
+
+def api_logs_collection():
+    return db.collection("platformApiLogs")
+
+
+def sanitize_api_key_doc(doc):
+    data = doc.to_dict() or {}
+    return {
+        "id": doc.id,
+        "name": data.get("name", ""),
+        "apiKeyPreview": data.get("apiKeyPreview", ""),
+        "permissions": data.get("permissions", []),
+        "allowedIps": data.get("allowedIps", []),
+        "status": data.get("status", "Disabled"),
+        "notes": data.get("notes", ""),
+        "createdAt": data.get("createdAt", ""),
+        "lastUsedAt": data.get("lastUsedAt", ""),
+        "updatedAt": data.get("updatedAt", ""),
+    }
+
+
+def write_api_log(api_doc_id, result, message, extra=None):
+    payload = {
+        "apiKeyId": api_doc_id,
+        "path": request.path,
+        "method": request.method,
+        "ip": api_client_ip(),
+        "result": result,
+        "message": message,
+        "createdAt": api_now_text(),
+        "userAgent": request.headers.get("User-Agent", ""),
+    }
+    if extra:
+        payload.update(extra)
+    api_logs_collection().document().set(payload)
+
+
+def verify_platform_api(required_permission):
+    api_key = request.headers.get("X-ATV-API-Key", "").strip()
+    signature = request.headers.get("X-ATV-Signature", "").strip()
+    timestamp = request.headers.get("X-ATV-Timestamp", "").strip()
+    if not api_key or not signature or not timestamp:
+        raise PermissionError("API Key, signature and timestamp are required")
+    try:
+        ts = int(timestamp)
+    except Exception:
+        raise PermissionError("Invalid timestamp")
+    if abs(int(time.time()) - ts) > 300:
+        raise PermissionError("Request timestamp expired")
+
+    matches = list(api_keys_collection().where("apiKeyHash", "==", api_secret_hash(api_key)).limit(1).stream())
+    if not matches:
+        write_api_log("", "denied", "Invalid API key")
+        raise PermissionError("Invalid API key")
+    doc = matches[0]
+    data = doc.to_dict() or {}
+    if data.get("status") != "Active":
+        write_api_log(doc.id, "denied", "API key disabled")
+        raise PermissionError("API key disabled")
+    allowed_ips = data.get("allowedIps") or []
+    client_ip = api_client_ip()
+    if allowed_ips and client_ip not in allowed_ips:
+        write_api_log(doc.id, "denied", "IP address not allowed", {"allowedIps": allowed_ips})
+        raise PermissionError("IP address not allowed")
+    permissions = data.get("permissions") or []
+    if required_permission not in permissions:
+        write_api_log(doc.id, "denied", "Permission denied", {"requiredPermission": required_permission})
+        raise PermissionError("Permission denied")
+
+    secret = api_decrypt_secret(data.get("secretEncrypted", ""))
+    raw_body = request.get_data(as_text=True) or ""
+    payload = timestamp + "." + request.method.upper() + "." + request.path + "." + raw_body
+    expected = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        write_api_log(doc.id, "denied", "Invalid signature")
+        raise PermissionError("Invalid signature")
+
+    doc.reference.set({"lastUsedAt": api_now_text()}, merge=True)
+    write_api_log(doc.id, "allowed", "Request allowed", {"requiredPermission": required_permission})
+    return doc.id, data
+
+
+@app.get("/api/admin/api-keys")
+def list_platform_api_keys():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    if not is_admin(decoded):
+        return json_error("Admin access required", 403)
+
+    keys = [sanitize_api_key_doc(doc) for doc in api_keys_collection().stream()]
+    return jsonify({"ok": True, "keys": keys})
+
+
+@app.post("/api/admin/api-keys/create")
+def create_platform_api_key():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    if not is_admin(decoded):
+        return json_error("Admin access required", 403)
+
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return json_error("API name is required", 400)
+    permissions = normalize_api_permissions(data.get("permissions") or [])
+    if not permissions:
+        return json_error("Select at least one permission", 400)
+
+    api_key = "atv_pk_" + secrets.token_urlsafe(24)
+    secret_key = "atv_sk_" + secrets.token_urlsafe(36)
+    webhook_secret = "atv_whsec_" + secrets.token_urlsafe(32)
+    now = api_now_text()
+    doc_id = str(uuid.uuid4())
+    payload = {
+        "name": name,
+        "apiKeyHash": api_secret_hash(api_key),
+        "apiKeyPreview": api_key_preview(api_key),
+        "secretHash": api_secret_hash(secret_key),
+        "secretEncrypted": api_encrypt_secret(secret_key),
+        "webhookSecretHash": api_secret_hash(webhook_secret),
+        "webhookSecretEncrypted": api_encrypt_secret(webhook_secret),
+        "allowedIps": normalize_ip_list(data.get("allowedIps") or []),
+        "permissions": permissions,
+        "status": "Active" if str(data.get("status") or "Active") == "Active" else "Disabled",
+        "notes": str(data.get("notes") or "").strip(),
+        "createdAt": now,
+        "updatedAt": now,
+        "lastUsedAt": "",
+        "createdBy": decoded.get("email", ""),
+    }
+    api_keys_collection().document(doc_id).set(payload)
+    backend_log("platform_api.created", {"id": doc_id, "name": name, "createdBy": decoded.get("email", "")})
+    return jsonify({
+        "ok": True,
+        "id": doc_id,
+        "apiKey": api_key,
+        "secretKey": secret_key,
+        "webhookSecret": webhook_secret,
+        "record": sanitize_api_key_doc(api_keys_collection().document(doc_id).get()),
+    })
+
+
+@app.route("/api/admin/api-keys/<key_id>", methods=["PATCH", "DELETE"])
+def manage_platform_api_key(key_id):
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    if not is_admin(decoded):
+        return json_error("Admin access required", 403)
+
+    ref = api_keys_collection().document(key_id)
+    doc = ref.get()
+    if not doc.exists:
+        return json_error("API key not found", 404)
+    if request.method == "DELETE":
+        ref.delete()
+        backend_log("platform_api.deleted", {"id": key_id, "admin": decoded.get("email", "")})
+        return jsonify({"ok": True, "deleted": True})
+
+    data = request.get_json(silent=True) or {}
+    update = {"updatedAt": api_now_text(), "updatedBy": decoded.get("email", "")}
+    if "name" in data:
+        update["name"] = str(data.get("name") or "").strip()
+    if "status" in data:
+        update["status"] = "Active" if str(data.get("status") or "") == "Active" else "Disabled"
+    if "allowedIps" in data:
+        update["allowedIps"] = normalize_ip_list(data.get("allowedIps") or [])
+    if "permissions" in data:
+        permissions = normalize_api_permissions(data.get("permissions") or [])
+        if not permissions:
+            return json_error("Select at least one permission", 400)
+        update["permissions"] = permissions
+    if "notes" in data:
+        update["notes"] = str(data.get("notes") or "").strip()
+    ref.set(update, merge=True)
+    backend_log("platform_api.updated", {"id": key_id, "admin": decoded.get("email", "")})
+    return jsonify({"ok": True, "record": sanitize_api_key_doc(ref.get())})
+
+
+@app.get("/api/admin/api-logs")
+def list_platform_api_logs():
+    try:
+        decoded = require_signed_in_request()
+    except PermissionError as exc:
+        return json_error(str(exc), 401)
+    if not is_admin(decoded):
+        return json_error("Admin access required", 403)
+
+    docs = api_logs_collection().order_by("createdAt", direction=firestore.Query.DESCENDING).limit(30).stream()
+    logs = [{"id": doc.id, **(doc.to_dict() or {})} for doc in docs]
+    return jsonify({"ok": True, "logs": logs})
+
+
+@app.post("/api/v1/payouts/create")
+def partner_create_payout():
+    try:
+        api_id, api_data = verify_platform_api("create_payout")
+    except PermissionError as exc:
+        return json_error(str(exc), 403)
+    data = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, "message": "Payout request accepted", "apiKeyId": api_id, "status": "Pending", "payload": data})
+
+
+@app.post("/api/v1/deposits/confirm")
+def partner_confirm_deposit():
+    try:
+        api_id, api_data = verify_platform_api("confirm_deposit")
+    except PermissionError as exc:
+        return json_error(str(exc), 403)
+    data = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, "message": "Deposit confirmation accepted", "apiKeyId": api_id, "status": "Received", "payload": data})
+
+
+@app.get("/api/v1/transactions/<transaction_id>")
+def partner_get_transaction(transaction_id):
+    try:
+        api_id, api_data = verify_platform_api("read_transactions")
+    except PermissionError as exc:
+        return json_error(str(exc), 403)
+    doc = db.collection("transactions").document(transaction_id).get()
+    if not doc.exists:
+        return json_error("Transaction not found", 404)
+    return jsonify({"ok": True, "transaction": {"id": doc.id, **(doc.to_dict() or {})}})
+
+
+@app.get("/api/v1/orders/<order_id>/status")
+def partner_get_order_status(order_id):
+    try:
+        api_id, api_data = verify_platform_api("check_order_status")
+    except PermissionError as exc:
+        return json_error(str(exc), 403)
+    for collection in ["transactions", "deposits", "walletRequests"]:
+        doc = db.collection(collection).document(order_id).get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            return jsonify({"ok": True, "collection": collection, "id": doc.id, "status": data.get("status", "")})
+    return json_error("Order not found", 404)
+
+
+@app.post("/api/v1/webhooks/payment")
+def partner_payment_webhook():
+    try:
+        api_id, api_data = verify_platform_api("webhook_access")
+    except PermissionError as exc:
+        return json_error(str(exc), 403)
+    data = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, "message": "Webhook received", "apiKeyId": api_id, "received": True, "payload": data})
+
+
 @app.get("/<path:filename>")
 def public_file(filename):
     clean_name = filename.split("?", 1)[0].strip("/")
@@ -1815,3 +2136,5 @@ def public_file(filename):
             clean_name = "styles.css"
         return send_from_directory(BASE_DIR, clean_name)
     abort(404)
+
+
